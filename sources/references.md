@@ -7,6 +7,12 @@ https://wiki.analog.com/resources/eval/user-guides/circuits-from-the-lab/cn0566
 Analog Devices CN0566 Phaser Quickstart Guide:
 https://wiki.analog.com/resources/eval/user-guides/circuits-from-the-lab/cn0566/quickstart
 
+Analog Devices ADALM-PLUTO Product Page:
+https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/adalm-pluto.html
+
+Analog Devices ADALM-PLUTO User Guide:
+https://wiki.analog.com/university/tools/pluto
+
 Analog Devices PyADI-IIO software library:
 https://analogdevicesinc.github.io/pyadi-iio/
 

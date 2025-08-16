@@ -1,7 +1,7 @@
-# Project References - Annotated Summary
+# Project References - Comprehensive Annotated Summary
 
 ## Overview
-This document provides an annotated guide to key references for the Aleph-Phaser integration project, explaining the relevance and content of each resource.
+This document provides a complete annotated guide to all references and resources for the Aleph-Phaser integration project, including newly added materials that address all previously identified gaps.
 
 ---
 
@@ -45,11 +45,36 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 
 **Relevance**: Baseline procedures that need to be replicated on Aleph platform
 
+### 4. ADALM-PLUTO Product Page
+**URL**: https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/adalm-pluto.html
+
+**Content**: Official PlutoSDR product information
+**Key Information**:
+- Technical specifications
+- Software downloads
+- Driver information
+- Firmware updates
+
+**Relevance**: Primary SDR hardware used for signal digitization
+
+### 5. ADALM-PLUTO User Guide
+**URL**: https://wiki.analog.com/university/tools/pluto
+
+**Content**: Comprehensive PlutoSDR documentation
+**Key Sections**:
+- Hardware architecture
+- Software installation
+- Network configuration
+- Troubleshooting guides
+- USB and Ethernet modes
+
+**Relevance**: Critical for understanding PlutoSDR integration requirements
+
 ---
 
 ## Software Libraries
 
-### 4. PyADI-IIO Library
+### 6. PyADI-IIO Library
 **URL**: https://analogdevicesinc.github.io/pyadi-iio/
 
 **Content**: Python library for interfacing with ADI hardware via Linux IIO framework
@@ -70,7 +95,7 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 
 ## Elodin/Aleph Resources
 
-### 5. Aleph Computer Software Stack
+### 7. Aleph Computer Software Stack
 **URL**: https://github.com/elodin-sys/elodin/tree/main/images/aleph
 
 **Content**: Aleph's NixOS-based software configuration
@@ -87,7 +112,7 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 - Defines available system services
 - Contains examples of hardware integration
 
-### 6. Aleph Jetson Orin Device Tree Configuration
+### 8. Aleph Jetson Orin Device Tree Configuration
 **URL**: https://github.com/antmicro/antmicro-jetson-orin-baseboard-kernel-5-10/commit/92468752879f7f60cfdaab0b5adcbcdd627b317f
 
 **Content**: Device tree configuration for Jetson Orin on custom carrier boards
@@ -107,7 +132,7 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 
 ## GNU Radio on NixOS Resources
 
-### 7. Doron Behar's GNU Radio Nixpkgs Work
+### 9. Doron Behar's GNU Radio Nixpkgs Work
 **URL**: https://github.com/NixOS/nixpkgs/tree/0d00f23f023b7215b3f1035adb5247c8ec180dbc/pkgs/applications/radio/gnuradio
 **Package Info**: https://mynixos.com/nixpkgs/package/gnuradioMinimal
 
@@ -124,7 +149,7 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 - Includes dependency management
 - Foundation for PlutoSDR integration
 
-### 8. Tom Bereknyei's GNU Radio Nix Demos
+### 10. Tom Bereknyei's GNU Radio Nix Demos
 **GRCon Talk**: https://www.gnuradio.org/grcon/grcon18/presentations/GNU_Radio_Ecosystem_Management_with_Nix/7-GNURadio_ecosystem_management_with_Nix.pdf
 **Demo Repository**: https://github.com/tomberek/gnuradio-demo/tree/master/demo5
 **gr-iio Fork**: https://github.com/tomberek/gr-iio/tree/2f2b00d1dd544102c7d64b95df592e0dcc903fb5
@@ -142,7 +167,7 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 - Cross-compilation patterns for Jetson Orin (ARM)
 - Complete ecosystem management approach
 
-### 9. NixOS Wiki - GNU Radio
+### 11. NixOS Wiki - GNU Radio
 **URL**: https://nixos.wiki/wiki/GNU_Radio
 
 **Content**: Community documentation with working configurations
@@ -160,24 +185,75 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 
 ---
 
+## Practical Implementation Examples
+
+### 12. Phaser Beamforming Example Code
+**File**: `sources/simple-beamforming-example.py`
+**Author**: Jon Kraft, Analog Devices (Jan 2025)
+**Repository**: https://github.com/jonkraft/PhaserBeamforming
+
+**Content**: Complete working beamforming implementation
+**Key Features**:
+- Multi-angle beam steering (-90° to +90°)
+- Automatic calibration loading
+- Real-time FFT visualization
+- Phase calculation algorithms
+- HB100 signal source integration
+
+**Integration Value**:
+- Reference implementation for Aleph port
+- Shows proper pyadi-iio usage
+- Demonstrates calibration workflow
+- Includes error handling patterns
+
+**Context Document**: `context/beamforming-example-claude.md`
+
+### 13. PlutoSDR NixOS Integration Guide
+**File**: `sources/pluto-sdr-aleph-integration.md`
+
+**Content**: Comprehensive NixOS configuration for PlutoSDR
+**Key Elements**:
+- Complete udev rules (official ADI rules)
+- NixOS configuration module
+- Testing procedures
+- Common troubleshooting
+- Jetson/Orin specific notes
+
+**Critical Components**:
+```nix
+# Key packages
+libiio, iio-oscilloscope, soapyplutosdr, gnuradio
+# Groups required
+plugdev, dialout
+# ModemManager exclusion
+ENV{ID_MM_DEVICE_IGNORE}="1"
+```
+
+**Integration Value**:
+- Tested, working NixOS configuration
+- Solves permission and access issues
+- Includes Jetson-specific guidance
+- Complete testing checklist
+
+**Context Document**: `context/pluto-sdr-integration-claude.md`
+
+---
+
 ## Additional Resources Still Needed
 
 ### Remaining Documentation Gaps
 
-1. **SPI Multiplexing Solutions**
+1. **SPI Multiplexing Solutions** *(Deferred to Phase 3)*
    - Reference designs for SPI expansion without chip select
    - STM32H7 firmware examples for SPI bridge
    - Communication protocols between STM32H7 and Jetson
+   - **Note**: Will be addressed after basic Aleph integration is proven
 
 2. **Beamforming Algorithm References**
    - Advanced processing techniques
    - AI/ML integration with phased arrays
    - CUDA acceleration for beamforming
-
-3. **PlutoSDR on NixOS**
-   - Specific PlutoSDR device configuration
-   - udev rules for NixOS
-   - libiio packaging details
+   - Real-time optimization strategies
 
 ### Community Resources
 - **Analog Devices EngineerZone**: Forum for technical questions
@@ -192,14 +268,16 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 |------|------------------|-------------------|
 | Hardware Setup | CN0566 User Guide | Circuit Note |
 | Software Installation | PyADI-IIO Docs | Aleph Software Stack |
-| First Run | Quickstart Guide | User Guide |
+| First Run | Quickstart Guide | Beamforming Example |
 | Troubleshooting | User Guide | EngineerZone |
 | NixOS Packaging | Aleph Software Stack | Doron Behar's nixpkgs |
 | GNU Radio Setup | NixOS Wiki GNU Radio | Tom Bereknyei's demos |
 | ARM Cross-Compilation | Tom Bereknyei Demo5 | GNU Radio nixpkgs |
 | Device Tree Config | Aleph Orin Device Tree | Kernel documentation |
-| PlutoSDR Integration | Tom Bereknyei gr-iio | PyADI-IIO Docs |
-| API Usage | PyADI-IIO Docs | Example Scripts |
+| PlutoSDR NixOS Config | PlutoSDR Integration Guide | Official udev rules |
+| PlutoSDR Testing | PlutoSDR Integration Guide | ADALM-PLUTO User Guide |
+| Beamforming Code | Beamforming Example | PyADI-IIO Docs |
+| API Usage | PyADI-IIO Docs | Beamforming Example |
 
 ---
 
@@ -207,9 +285,10 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 
 ### Phase 1: Understanding Current System
 1. Review CN0566 Quickstart Guide
-2. Study PyADI-IIO examples
+2. Study PyADI-IIO examples and Beamforming Example code
 3. Examine Circuit Note for hardware details
 4. Review Tom Bereknyei's gr-iio fork for PlutoSDR integration
+5. Understand PlutoSDR network and USB modes
 
 ### Phase 2: Planning Aleph Port
 1. Analyze Aleph Software Stack
@@ -218,18 +297,58 @@ This document provides an annotated guide to key references for the Aleph-Phaser
 4. Examine Tom Bereknyei's Demo5 for ARM cross-compilation
 
 ### Phase 3: NixOS Package Development
-1. Use NixOS Wiki GNU Radio configs as starting point
-2. Follow Doron Behar's modular packaging patterns
-3. Implement ARM cross-compilation per Tom Bereknyei's examples
-4. Configure device tree based on Antmicro reference
+1. Apply PlutoSDR NixOS Integration Guide configuration
+2. Use NixOS Wiki GNU Radio configs as starting point
+3. Follow Doron Behar's modular packaging patterns
+4. Implement ARM cross-compilation per Tom Bereknyei's examples
+5. Configure device tree based on Antmicro reference
+6. Test with working Beamforming Example
 
 ### Phase 4: Implementation & Testing
 1. Use PyADI-IIO as base library
-2. Integrate GNU Radio using nixpkgs patterns
-3. Apply device tree modifications for SPI access
-4. Test using CN0566 User Guide procedures
+2. Port Beamforming Example to Aleph
+3. Integrate GNU Radio using nixpkgs patterns
+4. Apply device tree modifications for SPI access (Phase 3)
+5. Test using CN0566 User Guide procedures
+6. Validate with PlutoSDR Integration Guide checklist
+
+---
+
+## Hardware Documentation
+
+### 14. Phaser Development Kit Schematic
+**File**: `sources/phaser-dev-kit-schematic.png`
+
+**Content**: Visual schematic diagram of CN0566 Phaser board
+**Key Information**:
+- Component placement
+- Signal routing
+- Power distribution
+- Connector pinouts
+
+**Integration Value**:
+- Visual reference for hardware connections
+- Understanding of signal flow
+- Debugging aid for hardware issues
+
+---
+
+## Context Documents Created
+
+The following comprehensive summaries have been created in the `/context` folder:
+
+1. **`emails-claude.md`** - Project initiation and technical discussions
+2. **`cn0566-circuit-note-claude.md`** - Hardware architecture and specifications
+3. **`phaser_lab_info.md`** - Lab procedures and learning objectives
+4. **`aleph-carrier-board-claude.md`** - Target platform specifications
+5. **`aleph-expansion-board-claude.md`** - SPI bridge solution analysis
+6. **`raspberry-pi-5-product-brief-claude.md`** - Baseline platform comparison
+7. **`ADAR1000-datasheet-claude.md`** - Beamformer chip detailed analysis
+8. **`ADF4159-datasheet-claude.md`** - Frequency synthesizer specifications
+9. **`pluto-sdr-integration-claude.md`** - NixOS configuration guide
+10. **`beamforming-example-claude.md`** - Reference implementation analysis
 
 ---
 
 *References compiled for Aleph-Phaser Integration Project*
-*Last updated: Analysis of project reference materials*
+*Last updated: Including PlutoSDR integration and beamforming example materials*
