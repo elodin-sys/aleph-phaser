@@ -206,7 +206,7 @@ This document provides a complete annotated guide to all references and resource
 - Demonstrates calibration workflow
 - Includes error handling patterns
 
-**Context Document**: `context/beamforming-example-claude.md`
+**Context Document**: `context/beamforming-example.md`
 
 ### 13. PlutoSDR NixOS Integration Guide
 **File**: `sources/pluto-sdr-aleph-integration.md`
@@ -235,7 +235,7 @@ ENV{ID_MM_DEVICE_IGNORE}="1"
 - Includes Jetson-specific guidance
 - Complete testing checklist
 
-**Context Document**: `context/pluto-sdr-integration-claude.md`
+**Context Document**: `context/pluto-sdr-integration.md`
 
 ---
 
@@ -337,16 +337,16 @@ ENV{ID_MM_DEVICE_IGNORE}="1"
 
 The following comprehensive summaries have been created in the `/context` folder:
 
-1. **`emails-claude.md`** - Project initiation and technical discussions
-2. **`cn0566-circuit-note-claude.md`** - Hardware architecture and specifications
+1. **`emails.md`** - Project initiation and technical discussions
+2. **`cn0566-circuit-note.md`** - Hardware architecture and specifications
 3. **`phaser_lab_info.md`** - Lab procedures and learning objectives
-4. **`aleph-carrier-board-claude.md`** - Target platform specifications
-5. **`aleph-expansion-board-claude.md`** - SPI bridge solution analysis
-6. **`raspberry-pi-5-product-brief-claude.md`** - Baseline platform comparison
-7. **`ADAR1000-datasheet-claude.md`** - Beamformer chip detailed analysis
-8. **`ADF4159-datasheet-claude.md`** - Frequency synthesizer specifications
-9. **`pluto-sdr-integration-claude.md`** - NixOS configuration guide
-10. **`beamforming-example-claude.md`** - Reference implementation analysis
+4. **`aleph-carrier-board.md`** - Target platform specifications
+5. **`aleph-expansion-board.md`** - SPI bridge solution analysis
+6. **`raspberry-pi-5-product-brief.md`** - Baseline platform comparison
+7. **`ADAR1000-datasheet.md`** - Beamformer chip detailed analysis
+8. **`ADF4159-datasheet.md`** - Frequency synthesizer specifications
+9. **`pluto-sdr-integration.md`** - NixOS configuration guide
+10. **`beamforming-example.md`** - Reference implementation analysis
 
 ---
 

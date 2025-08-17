@@ -224,9 +224,9 @@ git checkout <good-commit-hash>
 ## Contact for Help
 
 ### Documentation References
-- PlutoSDR: `context/pluto-sdr-integration-claude.md`
-- Beamforming: `context/beamforming-example-claude.md`
-- Hardware: `context/cn0566-circuit-note-claude.md`
+- PlutoSDR: `context/pluto-sdr-integration.md`
+- Beamforming: `context/beamforming-example.md`
+- Hardware: `context/cn0566-circuit-note.md`
 
 ### Online Resources
 - Analog Devices EngineerZone

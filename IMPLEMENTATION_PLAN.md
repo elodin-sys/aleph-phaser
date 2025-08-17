@@ -26,7 +26,7 @@
   - python3Packages.numpy
   - python3Packages.matplotlib
   ```
-- [ ] Implement udev rules for PlutoSDR (from `pluto-sdr-integration-claude.md`)
+- [ ] Implement udev rules for PlutoSDR (from `pluto-sdr-integration.md`)
 - [ ] Create `plugdev` group and add user
 - [ ] Deploy initial configuration to Aleph
 
@@ -54,7 +54,7 @@
 - [x] Basic SDR parameters readable (sample rate, gain, etc.)
 
 ### References
-- `context/pluto-sdr-integration-claude.md`
+- `context/pluto-sdr-integration.md`
 - `sources/pluto-sdr-aleph-integration.md`
 
 ---
@@ -105,7 +105,7 @@
 - [x] No errors in `phaser.configure(device_mode="rx")`
 
 ### References
-- `context/beamforming-example-claude.md`
+- `context/beamforming-example.md`
 - `sources/simple-beamforming-example.py`
 
 ---

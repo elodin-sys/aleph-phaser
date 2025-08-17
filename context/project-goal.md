@@ -1,4 +1,4 @@
-## CN0566 Phaser × Elodin Aleph — Email Thread Summary
+## CN0566 Phaser × Elodin Aleph — Project Goal Setting Summary
 
 - **Timeframe**: Apr 9, 2025 → Jun 30, 2025
 - **Participants**:
