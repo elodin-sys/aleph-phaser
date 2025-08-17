@@ -17,8 +17,8 @@
 ### Implementation Steps
 
 #### 1.1 NixOS Environment Setup
-- [ ] Review current `flake.nix` and `deploy.sh` structure
-- [ ] Add PlutoSDR support packages to configuration:
+- [x] Review current `flake.nix` and `deploy.sh` structure
+- [x] Add PlutoSDR support packages to configuration:
   ```nix
   # Add to system packages
   - libiio
@@ -26,9 +26,9 @@
   - python3Packages.numpy
   - python3Packages.matplotlib
   ```
-- [ ] Implement udev rules for PlutoSDR (from `pluto-sdr-integration.md`)
-- [ ] Create `plugdev` group and add user
-- [ ] Deploy initial configuration to Aleph
+- [x] Implement udev rules for PlutoSDR (from `pluto-sdr-integration.md`)
+- [x] Create `plugdev` group and add user
+- [x] Deploy initial configuration to Aleph
 
 #### 1.2 PlutoSDR Hardware Connection
 - [ ] Connect PlutoSDR directly to Aleph USB-C port
@@ -406,7 +406,21 @@ python3 test_beamforming.py
 *Use this space to track daily progress, issues, and solutions*
 
 ### Day 1 Notes:
-- 
+- Created modular NixOS configuration for PlutoSDR support (`nix/modules/plutosdr.nix`)
+- **Properly packaged pylibiio for NixOS** (`nix/pkgs/pylibiio.nix`)
+  - Solved build-time library detection issues
+  - Added runtime path patching for libiio.so.0
+  - Made libiio a propagated dependency
+- **Packaged pyadi-iio for NixOS** (`nix/pkgs/pyadi-iio.nix`)
+  - Integrated with custom pylibiio package
+  - Disabled import checks for cross-compilation
+- Added official ADI udev rules for PlutoSDR device access
+- Created plugdev group and automatic user assignment
+- Built comprehensive test script (`scripts/test_plutosdr.py`) for validation
+- Integrated PlutoSDR module into main flake.nix configuration
+- Added development and debugging tools to system packages
+- **Eliminated need for post-deployment scripts - everything is declarative**
+- **Successfully deployed to Aleph at 16:54** ✅
 
 ### Day 2 Notes:
 - 

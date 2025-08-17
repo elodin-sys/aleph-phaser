@@ -20,7 +20,16 @@
     ...
   }: rec {
     system = "aarch64-linux";
-    nixosModules.default = {config, ...}: {
+    
+    # Define custom overlay for our packages
+    overlays.default = final: prev: {
+      pylibiio = final.callPackage ./nix/pkgs/pylibiio.nix {};
+      pyadi-iio = final.callPackage ./nix/pkgs/pyadi-iio.nix {
+        pylibiio = final.pylibiio;
+      };
+    };
+    
+    nixosModules.default = {config, pkgs, ...}: {
       imports = with aleph.nixosModules; [
         # hardware modules
         jetpack # core module required to make jetpack-nixos work
@@ -35,17 +44,57 @@
         aleph-setup # a setup tool that guides you through setting up wifi and a user on first login
         aleph-base # a set of default configuration options that make developing on aleph easier
         aleph-dev # a default set of packages like cuda, opencv, and git that make developing on aleph easier
+        
+        # Import our custom modules
+        ./nix/modules/plutosdr.nix
       ];
 
       # overlays required to get elodin and nvidia packages
       nixpkgs.overlays = [
         aleph.overlays.default
         aleph.overlays.jetpack
+        overlays.default  # Add our custom overlay
       ];
 
       system.stateVersion = "24.11";
 
       i18n.supportedLocales = [(config.i18n.defaultLocale + "/UTF-8")];
+
+      # Enable PlutoSDR support
+      services.plutosdr = {
+        enable = true;
+        users = [ "aleph-phaser" ];  # Add our user to plugdev/dialout groups
+        enableGnuRadio = false;  # Start without GNU Radio, add later if needed
+      };
+
+      # Additional system packages for Phaser development
+      environment.systemPackages = with pkgs; [
+        # Development tools
+        git
+        vim
+        tmux
+        htop
+        
+        # Network tools for testing
+        wget
+        curl
+        nmap
+        iperf3
+        
+        # USB and hardware debugging
+        usbutils
+        pciutils
+        lshw
+        
+        # Python development
+        python3
+        
+        # Build tools (in case we need to compile anything)
+        gcc
+        gnumake
+        cmake
+        pkg-config
+      ];
 
       users.users.aleph-phaser = {
         isNormalUser = true;
@@ -60,6 +109,7 @@
             "audio"
             "networkmanager"
             "podman"
+            # Note: plugdev is added automatically by the plutosdr module
         ];
         shell = "/run/current-system/sw/bin/bash";
       };
