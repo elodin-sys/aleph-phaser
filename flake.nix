@@ -27,6 +27,10 @@
       pyadi-iio = final.callPackage ./nix/pkgs/pyadi-iio.nix {
         pylibiio = final.pylibiio;
       };
+      test-plutosdr = final.callPackage ./nix/pkgs/test-plutosdr.nix {
+        pylibiio = final.pylibiio;
+        pyadiIio = final.pyadi-iio;  # Map the package name correctly
+      };
     };
     
     nixosModules.default = {config, pkgs, ...}: {

@@ -58,12 +58,15 @@ in {
         # Network communication (for remote Phaser)
         paramiko
       ]))
-      
-      # Optional: GNU Radio stack
-    ] ++ (optionals cfg.enableGnuRadio [
-      gnuradio
-      # Note: gr-iio would need to be packaged separately
-    ]);
+    
+    # Our custom PlutoSDR test tool
+    test-plutosdr  # Available as 'test-plutosdr' command
+    
+    # Optional: GNU Radio stack
+  ] ++ (optionals cfg.enableGnuRadio [
+    gnuradio
+    # Note: gr-iio would need to be packaged separately
+  ]);
     
     # Create the plugdev group
     users.groups.plugdev = {};
