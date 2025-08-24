@@ -68,7 +68,7 @@
       services.plutosdr = {
         enable = true;
         users = [ "aleph-phaser" ];  # Add our user to plugdev/dialout groups
-        enableGnuRadio = false;  # Start without GNU Radio, add later if needed
+        enableGnuRadio = true; # long build time and heavy dependencies
       };
 
       # Additional system packages for Phaser development
