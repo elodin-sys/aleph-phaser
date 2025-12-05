@@ -2,6 +2,8 @@
 
 This repository demonstrates the Analog Devices CN0566 Phaser development kit running on the Elodin Aleph edge compute platform, which features an NVIDIA Orin NX 16GB module. The integration uses a hybrid architecture that combines the computational power of the Orin NX with the existing Raspberry Pi-based control infrastructure.
 
+https://github.com/user-attachments/assets/64733e7c-0bc6-4698-9362-03058d7d20c4
+
 ## Overview
 
 The project establishes a complete working integration between the Aleph and the Phaser X-band phased array radar kit. This includes direct PlutoSDR connectivity over USB, network-based control of the Phaser board through the Raspberry Pi, and a suite of demonstration scripts covering basic signal capture, beam steering, and radar lab exercises. Performance benchmarks confirm that the Orin NX significantly outperforms the original Raspberry Pi for signal processing tasks, with FFT operations completing in under a millisecond and beam sweeps finishing well within acceptable time limits.
