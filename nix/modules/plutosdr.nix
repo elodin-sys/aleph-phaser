@@ -28,6 +28,12 @@ in {
       description = "Enable GNU Radio support (heavier installation)";
     };
     
+    enableNetworkServer = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Enable iiod network server to expose PlutoSDR over network (port 30431)";
+    };
+    
     users = mkOption {
       type = types.listOf types.str;
       default = [];
@@ -40,6 +46,9 @@ in {
     environment.systemPackages = with pkgs; [
       # Core IIO libraries
       libiio
+      
+      # TCP proxy for exposing PlutoSDR over network
+      socat
       
       # Python environment with necessary packages
       (python3.withPackages (ps: with ps; [
@@ -81,6 +90,26 @@ in {
     
     # Install udev rules for PlutoSDR
     services.udev.extraRules = plutoUdevRules;
+    
+    # Open firewall port for iiod if network server is enabled
+    networking.firewall.allowedTCPPorts = mkIf cfg.enableNetworkServer [ 30431 ];
+    
+    # TCP proxy to forward PlutoSDR's IIO port to the network
+    # This allows Mac clients to connect to Aleph:30431 and reach PlutoSDR at 192.168.2.1:30431
+    systemd.services.iio-proxy = mkIf cfg.enableNetworkServer {
+      description = "IIO TCP Proxy - Forward PlutoSDR access to network";
+      after = [ "network.target" "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+      
+      serviceConfig = {
+        Type = "simple";
+        # Use socat to proxy TCP connections
+        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:30431,fork,reuseaddr TCP:192.168.2.1:30431";
+        Restart = "on-failure";
+        RestartSec = "5s";
+      };
+    };
     
     # Optionally disable ModemManager if it causes issues
     # Uncomment if you experience device conflicts

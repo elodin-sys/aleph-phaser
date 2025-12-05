@@ -106,14 +106,33 @@ python3 /tmp/aleph_benchmark.py --output-dir /tmp/output
 
 ## Demo Scripts
 
+### Headless (run on Aleph)
+
 | Script | Description | Requirements |
 |--------|-------------|--------------|
-| `sdr_basic_capture.py` | Basic PlutoSDR capture | PlutoSDR only |
-| `test_phaser_connection.py` | System connectivity test | Full system |
-| `aleph_minimal_example.py` | HB100 signal detection | Full system + HB100 |
-| `aleph_beam_steering.py` | Beam sweep and pattern | Full system |
-| `aleph_lab_exercises.py` | Lab 3 & 4 exercises | Full system |
-| `aleph_benchmark.py` | Performance benchmarks | Full system |
+| `scripts/demos/sdr_basic_capture.py` | Basic PlutoSDR capture | PlutoSDR only |
+| `scripts/demos/test_phaser_connection.py` | System connectivity test | Full system |
+| `scripts/demos/aleph_minimal_example.py` | HB100 signal detection | Full system + HB100 |
+| `scripts/demos/aleph_beam_steering.py` | Beam sweep and pattern | Full system |
+| `scripts/demos/aleph_lab_exercises.py` | Lab 3 & 4 exercises | Full system |
+| `scripts/demos/aleph_benchmark.py` | Performance benchmarks | Full system |
+
+### Qt GUI (run on Mac)
+
+| Script | Description | Requirements |
+|--------|-------------|--------------|
+| `scripts/mac/CW_RADAR_Waterfall_Mac.py` | Real-time CW radar waterfall | Mac + pyadi-iio + PyQt5 |
+
+**Mac setup (using uv):**
+```bash
+cd scripts/mac
+uv venv --python 3.12
+source .venv/bin/activate
+uv sync
+python3 CW_RADAR_Waterfall_Mac.py
+```
+
+See `scripts/mac/README.md` for full details.
 
 ## Project Structure
 
@@ -122,14 +141,19 @@ aleph-phaser/
 ├── flake.nix                    # NixOS configuration
 ├── deploy.sh                    # Deployment script
 ├── nix/
-│   ├── modules/plutosdr.nix    # PlutoSDR support module
+│   ├── modules/plutosdr.nix    # PlutoSDR support + IIO network proxy
 │   └── pkgs/                    # Custom packages
 │       ├── pylibiio.nix        # Python IIO bindings (fixed for nixpkgs 25.05)
 │       ├── pyadi-iio.nix       # ADI hardware control
 │       └── test-plutosdr.nix   # Validation tool
-├── scripts/demos/               # Demo scripts for Aleph
+├── scripts/
+│   ├── demos/                   # Headless demos for Aleph
+│   └── mac/                     # Qt GUI demos for Mac
+│       ├── CW_RADAR_Waterfall_Mac.py
+│       └── requirements.txt
 ├── results/                     # Benchmark results and plots
 ├── phaser-pyadi-iio-examples/  # Original ADI examples
+├── phaser-radar-labs/          # Radar lab examples
 ├── context/                     # Project documentation
 └── ssh/                         # SSH keys
 ```
