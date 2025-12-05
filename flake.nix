@@ -31,10 +31,18 @@
         pylibiio = final.pylibiio;
         pyadiIio = final.pyadi-iio;  # Map the package name correctly
       };
-      # Phaser data: pass local data directory for calibration files etc.
+      # Phaser data: pass local data directory, and scripts for on-device demos
       phaser-data = final.callPackage ./nix/pkgs/phaser-data.nix {
         localDataSrc = ./data;
+        scriptsSrc = ./scripts;
       };
+      # Extend Python packages to include our custom packages
+      python3 = prev.python3.override {
+        packageOverrides = pyfinal: pyprev: {
+          cupy = final.callPackage ./nix/pkgs/cupy.nix {};
+        };
+      };
+      python3Packages = final.python3.pkgs;
     };
     
     nixosModules.default = {config, pkgs, ...}: {
@@ -55,7 +63,6 @@
         
         # Import our custom modules
         ./nix/modules/plutosdr.nix
-        ./nix/modules/gpu-radar.nix
       ];
 
       # overlays required to get elodin and nvidia packages
@@ -69,17 +76,12 @@
 
       i18n.supportedLocales = [(config.i18n.defaultLocale + "/UTF-8")];
 
-      # Enable PlutoSDR support
+      # Enable PlutoSDR support with GPU demos
       services.plutosdr = {
         enable = true;
         users = [ "aleph-phaser" ];  # Add our user to plugdev/dialout groups
         enableGnuRadio = true; # long build time and heavy dependencies
-      };
-      
-      # Enable GPU-accelerated radar processing
-      services.gpu-radar = {
-        enable = true;
-        enableVisualization = true;
+        enableGpuDemos = true; # Enable GPU-accelerated radar demos
       };
 
       # Additional system packages for Phaser development

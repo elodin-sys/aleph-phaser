@@ -75,21 +75,19 @@ python3 -c "import adi; print(adi.ad9361(uri='ip:192.168.2.1').sample_rate)"
 
 ### 3. Run Demos
 
+Demo scripts are automatically deployed to `/opt/phaser/scripts/` on the Aleph:
+
 ```bash
-# Copy demos to Aleph
-scp scripts/demos/*.py aleph-phaser@192.168.4.181:/tmp/
+# SSH to Aleph
+ssh -i ssh/aleph-phaser aleph-phaser@192.168.4.181
 
-# Minimal example (HB100 signal capture)
-python3 /tmp/aleph_minimal_example.py --output-dir /tmp/output
+# CPU Demos (work immediately after deploy)
+python3 /opt/phaser/scripts/cpu-demos/aleph_minimal_example.py --output-dir /tmp/output
+python3 /opt/phaser/scripts/cpu-demos/aleph_beam_steering.py --output-dir /tmp/output
+python3 /opt/phaser/scripts/cpu-demos/aleph_benchmark.py --output-dir /tmp/output
 
-# Beam steering sweep
-python3 /tmp/aleph_beam_steering.py --output-dir /tmp/output
-
-# Lab exercises
-python3 /tmp/aleph_lab_exercises.py --lab both --output-dir /tmp/output
-
-# Benchmarks
-python3 /tmp/aleph_benchmark.py --output-dir /tmp/output
+# GPU Demos (require CuPy for full acceleration)
+python3 /opt/phaser/scripts/gpu-demos/run_gpu_demo.py --output-dir /tmp/gpu_results
 ```
 
 ## Hardware Requirements
@@ -110,45 +108,44 @@ python3 /tmp/aleph_benchmark.py --output-dir /tmp/output
 
 ## Demo Scripts
 
-### GPU-Accelerated Demos (NEW - Orin NX Showcase)
+### GPU-Accelerated Demos (Orin NX Showcase)
 
 These demos showcase radar processing capabilities **impractical on Raspberry Pi**:
 
 | Script | Description | Key Feature |
 |--------|-------------|-------------|
-| `scripts/demos/gpu_benchmark.py` | Full performance comparison | 10-100x speedup vs Pi4 |
-| `scripts/demos/gpu_range_doppler.py` | Range-Doppler maps | 30+ FPS @ 256K samples |
-| `scripts/demos/gpu_cfar.py` | GPU CFAR detection | <1ms for 64K samples |
-| `scripts/demos/gpu_micro_doppler.py` | Drone detection | Micro-Doppler spectrograms |
-| `scripts/demos/run_gpu_demo.py` | Complete demo suite | All demos + report |
+| `gpu-demos/gpu_benchmark.py` | Full performance comparison | 10-100x speedup vs Pi4 |
+| `gpu-demos/gpu_range_doppler.py` | Range-Doppler maps | 30+ FPS @ 256K samples |
+| `gpu-demos/gpu_cfar.py` | GPU CFAR detection | <1ms for 64K samples |
+| `gpu-demos/gpu_micro_doppler.py` | Drone detection | Micro-Doppler spectrograms |
+| `gpu-demos/run_gpu_demo.py` | Complete demo suite | All demos + report |
 
-**Setup for GPU demos:**
+**Run GPU demos on Aleph:**
 ```bash
-# SSH to Aleph
 ssh -i ssh/aleph-phaser aleph-phaser@192.168.4.181
+cd /opt/phaser/scripts/gpu-demos
 
-# Install CuPy (first time only)
-/etc/gpu-radar/setup-cupy.sh
+# Full demo suite with synthetic data
+python3 run_gpu_demo.py --output-dir /tmp/gpu_results
 
-# Activate GPU environment
-source ~/.gpu-radar-venv/bin/activate
-
-# Copy and run demos
-scp -i ssh/aleph-phaser scripts/demos/*.py aleph-phaser@192.168.4.181:/tmp/
-scp -i ssh/aleph-phaser -r scripts/demos/gpu_utils aleph-phaser@192.168.4.181:/tmp/
-python3 /tmp/run_gpu_demo.py --output-dir /tmp/gpu_results
+# Individual demos
+python3 gpu_benchmark.py --output-dir /tmp/results
+python3 gpu_range_doppler.py --output-dir /tmp/results
+python3 gpu_micro_doppler.py --output-dir /tmp/results
 ```
 
-### Headless (run on Aleph)
+Note: Demos automatically use GPU (CuPy) when available, otherwise fall back to CPU (NumPy).
+
+### CPU Demos (run on Aleph)
 
 | Script | Description | Requirements |
 |--------|-------------|--------------|
-| `scripts/demos/sdr_basic_capture.py` | Basic PlutoSDR capture | PlutoSDR only |
-| `scripts/demos/test_phaser_connection.py` | System connectivity test | Full system |
-| `scripts/demos/aleph_minimal_example.py` | HB100 signal detection | Full system + HB100 |
-| `scripts/demos/aleph_beam_steering.py` | Beam sweep and pattern | Full system |
-| `scripts/demos/aleph_lab_exercises.py` | Lab 3 & 4 exercises | Full system |
-| `scripts/demos/aleph_benchmark.py` | Performance benchmarks | Full system |
+| `cpu-demos/sdr_basic_capture.py` | Basic PlutoSDR capture | PlutoSDR only |
+| `cpu-demos/test_phaser_connection.py` | System connectivity test | Full system |
+| `cpu-demos/aleph_minimal_example.py` | HB100 signal detection | Full system + HB100 |
+| `cpu-demos/aleph_beam_steering.py` | Beam sweep and pattern | Full system |
+| `cpu-demos/aleph_lab_exercises.py` | Lab 3 & 4 exercises | Full system |
+| `cpu-demos/aleph_benchmark.py` | Performance benchmarks | Full system |
 
 ### Qt GUI (run on Mac)
 
@@ -179,27 +176,39 @@ aleph-phaser/
 ├── deploy.sh                    # Deployment script
 ├── nix/
 │   ├── modules/
-│   │   ├── plutosdr.nix        # PlutoSDR support + IIO network proxy
-│   │   └── gpu-radar.nix       # GPU radar demo support
+│   │   └── plutosdr.nix        # PlutoSDR + GPU demo support
 │   └── pkgs/                    # Custom packages
 │       ├── pylibiio.nix        # Python IIO bindings
 │       ├── pyadi-iio.nix       # ADI hardware control
+│       ├── cupy.nix            # GPU-accelerated NumPy (CuPy)
+│       ├── phaser-data.nix     # Data files + scripts deployment
 │       └── test-plutosdr.nix   # Validation tool
 ├── scripts/
-│   ├── demos/                   # Headless demos for Aleph
-│   │   ├── gpu_benchmark.py    # GPU performance comparison
-│   │   ├── gpu_range_doppler.py # Range-Doppler demo
-│   │   ├── gpu_cfar.py         # GPU CFAR detection
-│   │   ├── gpu_micro_doppler.py # Drone detection
+│   ├── cpu-demos/               # CPU-based demos for Aleph
+│   │   ├── aleph_minimal_example.py
+│   │   ├── aleph_beam_steering.py
+│   │   └── aleph_benchmark.py
+│   ├── gpu-demos/               # GPU-accelerated demos
+│   │   ├── gpu_benchmark.py    # Performance comparison
+│   │   ├── gpu_range_doppler.py
+│   │   ├── gpu_cfar.py
+│   │   ├── gpu_micro_doppler.py
 │   │   ├── run_gpu_demo.py     # Complete demo suite
 │   │   └── gpu_utils/          # GPU signal processing library
 │   └── mac/                     # Qt GUI demos for Mac
-│       ├── CW_RADAR_Waterfall_Mac.py
-│       ├── FMCW_RADAR_Waterfall_Mac.py
 │       └── ...
+├── data/                        # Filter files, calibration data
 ├── results/                     # Benchmark results and plots
 ├── context/                     # Project documentation
 └── ssh/                         # SSH keys
+
+# On Aleph after deploy:
+/opt/phaser/
+├── filters/                     # LTE filter files
+├── scripts/                     # All demo scripts
+│   ├── cpu-demos/
+│   └── gpu-demos/
+└── calibration/                 # Calibration data (if any)
 ```
 
 ## Troubleshooting

@@ -34,6 +34,12 @@ in {
       description = "Enable iiod network server to expose PlutoSDR over network (port 30431)";
     };
     
+    enableGpuDemos = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Enable GPU-accelerated radar demos (CuPy for CUDA acceleration)";
+    };
+    
     users = mkOption {
       type = types.listOf types.str;
       default = [];
@@ -64,20 +70,16 @@ in {
         # ADI hardware control - properly packaged
         pyadi-iio  # Includes pylibiio dependency
         
-        # GPU demo support
-        pip
-        setuptools
-        wheel
+        # Demo support
         psutil
         pillow
         
-        # Additional useful packages
-        # ipython
-        # jupyter
-        
         # Network communication (for remote Phaser)
         paramiko
-      ]))
+      ] ++ (optionals cfg.enableGpuDemos [
+        # GPU-accelerated computing
+        cupy  # CuPy with CUDA 12.x support
+      ])))
     
     # Our custom PlutoSDR test tool
     test-plutosdr  # Available as 'test-plutosdr' command
