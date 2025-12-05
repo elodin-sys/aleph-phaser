@@ -33,6 +33,11 @@ Benchmarks on the NVIDIA Orin NX 16GB running Linux 5.10.216 show FFT processing
 
 ## Quick Start
 
+# Install Determinate Systems Nix (recommended)
+```bash
+curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+```
+
 Add the SSH key and deploy the NixOS configuration to the Aleph:
 
 ```bash
