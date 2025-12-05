@@ -202,5 +202,3 @@ The `pylibiio` package required modification for nixpkgs 25.05 split outputs:
 
 - [CN0566 Wiki](https://wiki.analog.com/resources/eval/user-guides/circuits-from-the-lab/cn0566)
 - [pyadi-iio Docs](https://analogdevicesinc.github.io/pyadi-iio/)
-- [Phaser Lab Instructions](context/phaser_lab_info.md)
-- [Implementation Plan](context/IMPLEMENTATION_PLAN.md)

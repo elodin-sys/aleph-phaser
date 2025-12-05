@@ -31,6 +31,7 @@
         pylibiio = final.pylibiio;
         pyadiIio = final.pyadi-iio;  # Map the package name correctly
       };
+      phaser-data = final.callPackage ./nix/pkgs/phaser-data.nix {};
     };
     
     nixosModules.default = {config, pkgs, ...}: {

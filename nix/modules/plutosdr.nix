@@ -50,6 +50,10 @@ in {
       # TCP proxy for exposing PlutoSDR over network
       socat
       
+      # Phaser data files (filters, calibration, etc.)
+      # Installed to /opt/phaser via symlink below
+      phaser-data
+      
       # Python environment with necessary packages
       (python3.withPackages (ps: with ps; [
         # Core dependencies
@@ -76,6 +80,17 @@ in {
     gnuradio
     # Note: gr-iio would need to be packaged separately
   ]);
+    
+    # Create /opt/phaser symlink pointing to phaser-data files
+    # This provides a stable path for scripts to reference:
+    #   /opt/phaser/filters/LTE20_MHz.ftr
+    #   /opt/phaser/calibration/...
+    environment.etc."opt-phaser".source = "${pkgs.phaser-data}/share/phaser";
+    
+    # Create the actual /opt/phaser symlink
+    systemd.tmpfiles.rules = [
+      "L+ /opt/phaser - - - - /etc/opt-phaser"
+    ];
     
     # Create the plugdev group
     users.groups.plugdev = {};

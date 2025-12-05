@@ -124,21 +124,24 @@ def main():
     my_sdr.rx_buffer_size = int(1024)
     my_sdr.rx_rf_bandwidth = int(10e6)
 
-    # Manual gain control
+    # Manual gain control - set gain high enough to receive HB100
     my_sdr.gain_control_mode_chan0 = "manual"
     my_sdr.gain_control_mode_chan1 = "manual"
-    my_sdr.rx_hardwaregain_chan0 = 0
-    my_sdr.rx_hardwaregain_chan1 = 0
+    my_sdr.rx_hardwaregain_chan0 = 60  # 0-73 dB range
+    my_sdr.rx_hardwaregain_chan1 = 60
 
     # Set RX LO (downconvert by 2 GHz)
     my_sdr.rx_lo = int(2.2e9)
     
-    # Load LTE filter if available
+    # Load LTE filter from deployed location
+    # Filters are deployed to /opt/phaser/filters/ by the NixOS module
+    filter_path = "/opt/phaser/filters/LTE20_MHz.ftr"
     try:
-        my_sdr.filter = "LTE20_MHz.ftr"
-        print("  LTE20 filter loaded")
+        my_sdr.filter = filter_path
+        print(f"  LTE20 filter loaded from {filter_path}")
     except Exception as e:
         print(f"  Filter not loaded: {e}")
+        print("    Hint: Ensure phaser-data is deployed (run deploy.sh)")
 
     print(f"  Sample rate: {my_sdr.sample_rate/1e6:.1f} MSPS")
     print(f"  RX LO: {my_sdr.rx_lo/1e9:.3f} GHz")
@@ -223,9 +226,26 @@ def main():
     del my_sdr
     del my_phaser
 
+    # Check if we actually detected the HB100
+    # Expected peak should be around 0.5-1.5 MHz (offset varies with HB100 tolerance)
+    # Power should be above -55 dB (depends on distance)
     print()
     print("=" * 60)
-    print("SUCCESS! HB100 signal detected at {:.2f} MHz offset".format(peak_freq))
+    if 0.2 < abs(peak_freq) < 2.0 and peak_power > -55:
+        print(f"SUCCESS! HB100 signal detected at {peak_freq:.2f} MHz offset")
+        print(f"  Signal power: {peak_power:.1f} dB")
+    elif peak_power > -60:
+        print(f"MARGINAL: Possible HB100 signal at {peak_freq:.2f} MHz")
+        print(f"  Signal power: {peak_power:.1f} dB (weak)")
+        print("  Try moving HB100 closer or adjusting angle")
+    else:
+        print("WARNING: HB100 signal not detected")
+        print(f"  Peak found at {peak_freq:.2f} MHz with power {peak_power:.1f} dB")
+        print()
+        print("Troubleshooting:")
+        print("  1. Is the HB100 turned on? (Check battery)")
+        print("  2. Is the HB100 aimed at the Phaser array?")
+        print("  3. Is the distance reasonable? (< 1 meter)")
     print("=" * 60)
 
 
