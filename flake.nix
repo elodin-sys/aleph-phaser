@@ -1,13 +1,13 @@
 {
   nixConfig = {
-    extra-substituters = ["http://ci-arm1.elodin.dev:5000"];
+    extra-substituters = ["https://elodin-nix-cache.s3.us-west-2.amazonaws.com"];
     extra-trusted-public-keys = [
-      "builder-cache-1:q7rDGIQgkg1nsxNEg7mHN1kEDuxPmJhQpuIXCCwLj8E="
+      "elodin-cache-1:vvbmIQvTOjcBjIs8Ri7xlT2I3XAmeJyF5mNlWB+fIwM="
     ];
   };
 
   inputs = {
-    aleph.url = "github:elodin-sys/elodin?ref=v0.14.2&dir=images/aleph";
+    aleph.url = "github:elodin-sys/elodin?ref=v0.15.4&dir=aleph";
     flake-utils.follows = "aleph/flake-utils";
     nixpkgs.follows = "aleph/nixpkgs";
     self.submodules = true;
@@ -41,7 +41,7 @@
         fs # module that allows building sd-card images compatible with aleph
 
         # networking modules
-        usb-eth # sets up the usb ethernet gadget present on aleph
+        # usb-eth # sets up the usb ethernet gadget present on aleph
         wifi # sets up wifi using iwd
 
         # default tooling
@@ -60,7 +60,7 @@
         overlays.default  # Add our custom overlay
       ];
 
-      system.stateVersion = "24.11";
+      system.stateVersion = "25.05";
 
       i18n.supportedLocales = [(config.i18n.defaultLocale + "/UTF-8")];
 
@@ -126,6 +126,9 @@
       };
       security.sudo.wheelNeedsPassword = false;
       nix.settings.trusted-users = ["@wheel" "root" "ubuntu" "aleph-phaser"];
+
+      # Customize the kernel source (current options are default and no_otg)
+      aleph.kernel.source = "no_otg";
 
       networking.firewall.enable = false;
     };

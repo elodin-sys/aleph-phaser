@@ -31,7 +31,7 @@
 - [x] Deploy initial configuration to Aleph
 
 #### 1.2 PlutoSDR Hardware Connection
-- [ ] Connect PlutoSDR directly to Aleph USB-C port
+- [ ] Connect PlutoSDR directly to Aleph USB-C
 - [ ] Verify USB enumeration: `lsusb | grep -E "0456|2fa2"`
 - [ ] Check kernel module loading: `lsmod | grep -E "cdc_|rndis"`
 - [ ] Verify network interface: `ip addr | grep 192.168.2`

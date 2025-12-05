@@ -12,8 +12,8 @@
 
 ### Software Prerequisites
 - [ ] MacBook Pro development environment ready
-- [ ] SSH access to Aleph verified: `ssh user@aleph-ip`
-- [ ] SSH access to Pi verified: `ssh pi@phaser.local`
+- [ ] SSH access to Aleph verified: `ssh user@aleph-ip`, "private key auth"
+- [ ] SSH access to Pi verified: `ssh analog@phaser.local`, password "analog"
 - [ ] Git repository cloned and up to date
 - [ ] `deploy.sh` script tested and working
 
