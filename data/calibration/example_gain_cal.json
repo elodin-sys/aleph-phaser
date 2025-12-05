@@ -1,0 +1,17 @@
+{
+  "description": "Example gain calibration file for CN0566 Phaser",
+  "created": "2024-12-04",
+  "board_serial": "EXAMPLE",
+  "frequency_ghz": 10.525,
+  "element_gains": {
+    "0": 1.00,
+    "1": 0.98,
+    "2": 1.02,
+    "3": 0.99,
+    "4": 1.01,
+    "5": 0.97,
+    "6": 1.00,
+    "7": 0.99
+  },
+  "notes": "This is an example file. Replace with actual calibration data for your board."
+}

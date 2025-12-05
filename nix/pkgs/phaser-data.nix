@@ -1,18 +1,19 @@
 # Phaser Data Files Package
 #
 # Deploys filter files and other data to /opt/phaser on the Aleph.
-# This establishes a pattern for deploying local data files.
+# Supports both:
+#   - URL-fetched files (filters from ADI GitHub)
+#   - Local files (calibration data from data/ directory)
 #
-# To add new data files:
-# 1. Add files to data/filters/ or create a new subdirectory in data/
-# 2. Update the 'src' or add to installPhase below
-# 3. Reference in scripts via /opt/phaser/<subdir>/<filename>
+# Usage in scripts:
+#   /opt/phaser/filters/LTE20_MHz.ftr
+#   /opt/phaser/calibration/example_gain_cal.json
 
-{ stdenv, lib, fetchurl }:
+{ stdenv, lib, fetchurl, localDataSrc ? null }:
 
 let
   # Download filter files from ADI's pyadi-iio repository
-  # This ensures reproducible builds without needing local files
+  # These are standard files that don't change often
   lte20 = fetchurl {
     url = "https://raw.githubusercontent.com/analogdevicesinc/pyadi-iio/main/examples/phaser/LTE20_MHz.ftr";
     sha256 = "1qzdvxhfhnq3ir035xw7asrxb4jbgbg8a9xpy8mafv8y04p49r75";
@@ -30,16 +31,58 @@ stdenv.mkDerivation {
   pname = "phaser-data";
   version = "1.0.0";
 
-  # No src needed - we use fetchurl above
-  dontUnpack = true;
+  # No src needed for URL-only approach, but we accept local data
+  src = localDataSrc;
+  dontUnpack = localDataSrc == null;
   dontBuild = true;
   dontConfigure = true;
 
   installPhase = ''
     mkdir -p $out/share/phaser/filters
+    mkdir -p $out/share/phaser/calibration
+
+    # Install URL-fetched filter files
     cp ${lte20} $out/share/phaser/filters/LTE20_MHz.ftr
     cp ${lte10} $out/share/phaser/filters/LTE10_MHz.ftr
     cp ${lte5} $out/share/phaser/filters/LTE5_MHz.ftr
+
+    # Install local files if source is provided
+    ${lib.optionalString (localDataSrc != null) ''
+      echo "Installing local data files..."
+      
+      # Copy local filter files (if any custom ones exist)
+      if [ -d filters ]; then
+        for f in filters/*; do
+          if [ -f "$f" ]; then
+            # Don't overwrite URL-fetched files unless local version exists
+            cp -n "$f" $out/share/phaser/filters/ || cp "$f" $out/share/phaser/filters/
+          fi
+        done
+      fi
+      
+      # Copy calibration files
+      if [ -d calibration ]; then
+        cp -r calibration/* $out/share/phaser/calibration/
+        echo "Installed calibration files:"
+        ls -la $out/share/phaser/calibration/
+      fi
+
+      # Support for additional data directories
+      # Add more here as needed (e.g., waveforms, configs)
+      for dir in waveforms configs; do
+        if [ -d "$dir" ]; then
+          mkdir -p $out/share/phaser/$dir
+          cp -r $dir/* $out/share/phaser/$dir/
+          echo "Installed $dir files"
+        fi
+      done
+    ''}
+
+    echo "=== Phaser Data Installation Complete ==="
+    echo "Filters:"
+    ls -la $out/share/phaser/filters/
+    echo "Calibration:"
+    ls -la $out/share/phaser/calibration/ 2>/dev/null || echo "(none)"
   '';
 
   meta = with lib; {
