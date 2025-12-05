@@ -1,21 +1,37 @@
 # Aleph-Phaser Quick Start Checklist
 
+## Current Status (Dec 4, 2024)
+- [x] **Phase 1 COMPLETE**: PlutoSDR working on Aleph
+- [x] **Phase 2 COMPLETE**: Phaser/Pi accessible at 192.168.4.184
+- [x] **Phase 3 COMPLETE**: Minimal example running
+- [x] **Phase 4 COMPLETE**: Beam steering demo working
+- [x] **Phase 5 COMPLETE**: Lab exercises (3 & 4) ported
+- [x] **Phase 6 COMPLETE**: Benchmarks run (FFT: 0.036ms, sweep: 3.2s)
+- [x] **Phase 7 COMPLETE**: Documentation updated
+
+## Connection Details
+| Device | Address | User |
+|--------|---------|------|
+| Aleph | 192.168.4.181 | aleph-phaser |
+| PlutoSDR | 192.168.2.1 | (via USB-Ethernet) |
+| Phaser/Pi | phaser.local | analog (password: analog) |
+
 ## Pre-Flight Checklist
 
 ### Hardware Setup
-- [ ] Aleph Carrier Board (ES02) powered and accessible
-- [ ] Orin NX module properly seated
-- [ ] Ethernet cable connected for network access
-- [ ] PlutoSDR ready for USB connection
-- [ ] Phaser + Raspberry Pi powered and on network
+- [x] Aleph Carrier Board (ES02) powered and accessible
+- [x] Orin NX module properly seated
+- [x] WiFi connected (192.168.4.181)
+- [x] PlutoSDR connected to Aleph USB-C
+- [ ] Phaser + Raspberry Pi powered and on network ⚠️ NEEDED
 - [ ] HB100 signal source with fresh battery
 
 ### Software Prerequisites
-- [ ] MacBook Pro development environment ready
-- [ ] SSH access to Aleph verified: `ssh user@aleph-ip`, "private key auth"
-- [ ] SSH access to Pi verified: `ssh analog@phaser.local`, password "analog"
-- [ ] Git repository cloned and up to date
-- [ ] `deploy.sh` script tested and working
+- [x] MacBook Pro development environment ready
+- [x] SSH access to Aleph verified: `ssh -i ssh/aleph-phaser aleph-phaser@192.168.4.181`
+- [ ] SSH access to Pi verified: `ssh analog@phaser.local`, password "analog" ⚠️ NEEDED
+- [x] Git repository cloned and up to date
+- [x] `deploy.sh` script tested and working
 
 ---
 
@@ -171,15 +187,21 @@ print(f"Phase delta for {angle}°: {phase_delta:.1f}°")
 
 ## Daily Progress Tracker
 
-### Day 1
-- [ ] Phase 1.1 Complete (NixOS setup)
-- [ ] Phase 1.2 Complete (PlutoSDR hardware)
-- [ ] Phase 1.3 Complete (IIO verification)
+### Day 1 (Dec 4, 2024) - ALL PHASES COMPLETE
+- [x] Phase 1.1 Complete (NixOS setup) - Fixed pylibiio for nixpkgs 25.05
+- [x] Phase 1.2 Complete (PlutoSDR hardware) - USB detected, network mode working
+- [x] Phase 1.3 Complete (IIO verification) - Python imports working
+- [x] Phase 2 Complete - Phaser/Pi at 192.168.4.184
+- [x] Phase 3 Complete - aleph_minimal_example.py working
+- [x] Phase 4 Complete - aleph_beam_steering.py working
+- [x] Phase 5 Complete - aleph_lab_exercises.py (Lab 3 & 4)
+- [x] Phase 6 Complete - Benchmarks: FFT 0.036ms, sweep 3.2s
+- [x] Phase 7 Complete - README and docs updated
 
-### Day 2-3
-- [ ] Phase 2.1 Complete (Network config)
-- [ ] Phase 2.2 Complete (pyadi-iio port)
-- [ ] Phase 2.3 Complete (Calibration)
+### Hardware Notes
+- Pi IP: 192.168.4.184 (use this instead of phaser.local on Aleph)
+- PlutoSDR: ip:192.168.2.1 (direct USB connection)
+- HB100: Turn on and aim at array to see signal
 
 ### Day 4-5
 - [ ] Phase 3.1 Complete (Port beamforming)
