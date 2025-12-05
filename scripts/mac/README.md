@@ -80,6 +80,55 @@ Real-time CW radar with FFT spectrum and waterfall display:
 python3 CW_RADAR_Waterfall_Mac.py
 ```
 
+### FMCW Radar Waterfall
+
+FMCW radar with range display, chirp bandwidth control, and beam steering:
+
+```bash
+python3 FMCW_RADAR_Waterfall_Mac.py
+```
+
+### FMCW Radar with ChirpSync
+
+FMCW radar using the Pluto TDD engine for synchronized chirp FFT data collection.
+Requires PlutoSDR firmware v0.39 or later.
+
+```bash
+python3 FMCW_RADAR_Waterfall_ChirpSync_Mac.py
+```
+
+### CFAR Radar Waterfall
+
+CFAR (Constant False Alarm Rate) target detection with adjustable parameters:
+
+```bash
+python3 CFAR_RADAR_Waterfall_Mac.py
+```
+
+Features:
+- Plot/Apply CFAR threshold toggle
+- Adjustable CFAR bias, guard cells, and reference cells
+- Beam steering control
+
+### CFAR Radar with ChirpSync
+
+CFAR target detection using the Pluto TDD engine for synchronized chirp collection.
+Requires PlutoSDR firmware v0.39 or later.
+
+```bash
+python3 CFAR_RADAR_Waterfall_ChirpSync_Mac.py
+```
+
+## Demo Summary
+
+| Script | Radar Type | Description |
+|--------|------------|-------------|
+| `CW_RADAR_Waterfall_Mac.py` | CW | Basic continuous wave radar |
+| `FMCW_RADAR_Waterfall_Mac.py` | FMCW | Frequency modulated, range display |
+| `CFAR_RADAR_Waterfall_Mac.py` | CFAR | Target detection with adaptive threshold |
+| `FMCW_RADAR_Waterfall_ChirpSync_Mac.py` | FMCW | TDD-synced chirp (requires Pluto v0.39+) |
+| `CFAR_RADAR_Waterfall_ChirpSync_Mac.py` | CFAR | TDD-synced CFAR (requires Pluto v0.39+) |
+
 ## Configuration
 
 Edit the IP addresses at the top of each script if your network differs:
@@ -96,6 +145,25 @@ rpi_ip = f"ip:{phaser_ip}"
 
 ## Troubleshooting
 
+### "file not found, loading default" messages
+
+These messages come from pyadi-iio when loading Phaser calibration:
+```
+file not found, loading default (all gain at maximum)
+file not found, loading default (no phase shift)
+```
+
+**This is normal** if you haven't run calibration on the Pi. The Phaser will work with
+default gain/phase values. To run calibration:
+
+```bash
+ssh analog@192.168.4.184
+cd ~/pyadi-iio/examples/phaser
+python3 phaser_prod_tst.py
+```
+
+Note: Calibration files are stored on the Pi's filesystem, not the Aleph.
+
 ### Connection refused to Aleph
 
 1. Check Aleph is reachable: `ping 192.168.4.181`
@@ -106,6 +174,22 @@ rpi_ip = f"ip:{phaser_ip}"
 
 1. Check Pi is reachable: `ping 192.168.4.184`
 2. Check iiod is running on Pi: `ssh analog@192.168.4.184 'systemctl status iiod'`
+
+### Script hangs or times out
+
+If the Qt window opens but becomes unresponsive, or you see timeout errors:
+
+1. **Check PlutoSDR connection**: The Pluto may have lost its USB connection
+   ```bash
+   ssh aleph-phaser@192.168.4.181 'iio_info -u ip:192.168.2.1 | head -5'
+   ```
+
+2. **Restart the iio-proxy service on Aleph**:
+   ```bash
+   ssh aleph-phaser@192.168.4.181 'sudo systemctl restart iio-proxy'
+   ```
+
+3. **Power cycle the PlutoSDR** if it's in a bad state
 
 ### "No module named 'iio'"
 

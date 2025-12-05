@@ -87,12 +87,17 @@ print("Configuring hardware...")
 # Initialize both ADAR1000s, set gains to max, and all phases to 0
 my_phaser.configure(device_mode="rx")
 
+# Note: Calibration files are stored on the Pi, not the Aleph
+# If you see "file not found" messages, run calibration on the Pi first:
+#   ssh analog@192.168.4.184
+#   cd ~/pyadi-iio/examples/phaser
+#   python3 phaser_prod_tst.py
 try:
     my_phaser.load_gain_cal()
     my_phaser.load_phase_cal()
-    print("  ✓ Loaded calibration data")
 except:
-    print("  ⚠ No calibration data found, using defaults")
+    pass  # pyadi-iio prints its own "file not found" messages
+print("  ✓ Phaser configured (using Pi's calibration if available)")
 
 for i in range(0, 8):
     my_phaser.set_chan_phase(i, 0)
@@ -160,7 +165,7 @@ iq = 1 * (i + 1j * q)
 
 # Send data
 print("  Starting Tx...")
-my_sdr._ctx.set_timeout(0)
+my_sdr._ctx.set_timeout(5000)  # 5 second timeout (0 = infinite, can cause hangs)
 my_sdr.tx([iq * 0.5, iq])
 
 c = 3e8
@@ -305,11 +310,23 @@ win.setWindowState(QtCore.Qt.WindowMaximized)
 index = 0
 
 
+rx_error_count = 0
+
 def update():
-    global index, freq
+    global index, freq, rx_error_count
     label_style = {"color": "#FFF", "font-size": "14pt"}
 
-    data = my_sdr.rx()
+    try:
+        data = my_sdr.rx()
+        rx_error_count = 0  # Reset on success
+    except OSError as e:
+        rx_error_count += 1
+        if rx_error_count <= 3:
+            print(f"Rx error ({rx_error_count}/3): {e}")
+        elif rx_error_count == 4:
+            print("Too many Rx errors - SDR may need restart. Use Quit button or restart iio-proxy.")
+        return  # Skip this update
+
     data = data[0] + data[1]
     win_funct = np.blackman(len(data))
     y = data * win_funct
@@ -337,4 +354,15 @@ timer.timeout.connect(update)
 timer.start(0)
 
 # start the app
-sys.exit(App.exec())
+try:
+    App.exec()
+except KeyboardInterrupt:
+    print("\nInterrupted by user")
+finally:
+    # Always clean up Tx buffer to prevent SDR from getting stuck
+    try:
+        my_sdr.tx_destroy_buffer()
+        print("Tx buffer cleaned up")
+    except:
+        pass
+sys.exit(0)

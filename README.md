@@ -119,9 +119,13 @@ python3 /tmp/aleph_benchmark.py --output-dir /tmp/output
 
 ### Qt GUI (run on Mac)
 
-| Script | Description | Requirements |
-|--------|-------------|--------------|
-| `scripts/mac/CW_RADAR_Waterfall_Mac.py` | Real-time CW radar waterfall | Mac + pyadi-iio + PyQt5 |
+| Script | Radar Type | Description |
+|--------|------------|-------------|
+| `scripts/mac/CW_RADAR_Waterfall_Mac.py` | CW | Real-time CW radar waterfall |
+| `scripts/mac/FMCW_RADAR_Waterfall_Mac.py` | FMCW | FMCW with range display |
+| `scripts/mac/CFAR_RADAR_Waterfall_Mac.py` | CFAR | Target detection radar |
+| `scripts/mac/FMCW_RADAR_Waterfall_ChirpSync_Mac.py` | FMCW | TDD-synced (requires Pluto v0.39+) |
+| `scripts/mac/CFAR_RADAR_Waterfall_ChirpSync_Mac.py` | CFAR | TDD-synced CFAR (requires Pluto v0.39+) |
 
 **Mac setup (using uv):**
 ```bash
@@ -150,6 +154,12 @@ aleph-phaser/
 │   ├── demos/                   # Headless demos for Aleph
 │   └── mac/                     # Qt GUI demos for Mac
 │       ├── CW_RADAR_Waterfall_Mac.py
+│       ├── FMCW_RADAR_Waterfall_Mac.py
+│       ├── FMCW_RADAR_Waterfall_ChirpSync_Mac.py
+│       ├── CFAR_RADAR_Waterfall_Mac.py
+│       ├── CFAR_RADAR_Waterfall_ChirpSync_Mac.py
+│       ├── target_detection_dbfs.py
+│       ├── pyproject.toml       # uv dependency management
 │       └── requirements.txt
 ├── results/                     # Benchmark results and plots
 ├── phaser-pyadi-iio-examples/  # Original ADI examples
