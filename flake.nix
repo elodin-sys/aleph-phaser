@@ -55,6 +55,7 @@
         
         # Import our custom modules
         ./nix/modules/plutosdr.nix
+        ./nix/modules/gpu-radar.nix
       ];
 
       # overlays required to get elodin and nvidia packages
@@ -73,6 +74,12 @@
         enable = true;
         users = [ "aleph-phaser" ];  # Add our user to plugdev/dialout groups
         enableGnuRadio = true; # long build time and heavy dependencies
+      };
+      
+      # Enable GPU-accelerated radar processing
+      services.gpu-radar = {
+        enable = true;
+        enableVisualization = true;
       };
 
       # Additional system packages for Phaser development

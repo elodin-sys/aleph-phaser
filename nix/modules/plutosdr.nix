@@ -64,6 +64,13 @@ in {
         # ADI hardware control - properly packaged
         pyadi-iio  # Includes pylibiio dependency
         
+        # GPU demo support
+        pip
+        setuptools
+        wheel
+        psutil
+        pillow
+        
         # Additional useful packages
         # ipython
         # jupyter
