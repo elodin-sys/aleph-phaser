@@ -7,7 +7,7 @@
   };
 
   inputs = {
-    aleph.url = "github:elodin-sys/elodin?ref=v0.15.4&dir=aleph";
+    aleph.url = "github:elodin-sys/elodin?ref=7dba6c5&dir=aleph";
     flake-utils.follows = "aleph/flake-utils";
     nixpkgs.follows = "aleph/nixpkgs";
     self.submodules = true;
@@ -66,10 +66,12 @@
       ];
 
       # overlays required to get elodin and nvidia packages
+      # NOTE: Order matters! aleph.overlays.jetpack must come BEFORE aleph.overlays.default
+      # so that aleph's gitReposOverlay properly overrides nvidia-jetpack with custom device tree sources
       nixpkgs.overlays = [
-        aleph.overlays.default
-        aleph.overlays.jetpack
-        overlays.default  # Add our custom overlay
+        aleph.overlays.jetpack  # Apply jetpack overlay first
+        aleph.overlays.default  # Then apply aleph overlay (includes custom gitRepos for devicetree)
+        overlays.default        # Add our custom overlay last
       ];
 
       system.stateVersion = "25.05";
@@ -139,9 +141,6 @@
       };
       security.sudo.wheelNeedsPassword = false;
       nix.settings.trusted-users = ["@wheel" "root" "ubuntu" "aleph-phaser"];
-
-      # Customize the kernel source (current options are default and no_otg)
-      aleph.kernel.source = "no_otg";
 
       networking.firewall.enable = false;
     };
