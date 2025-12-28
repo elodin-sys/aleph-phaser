@@ -6,6 +6,7 @@ set -eu
 default_user="${USER}"
 default_host="fde1:2240:a1ef::1"
 default_config="default"
+default_key="./ssh/aleph-phaser"
 no_aleph_builder=false
 
 log_info() { gum log --level info "$*"; }
@@ -18,13 +19,15 @@ show_usage() {
   echo "Options:"
   echo "  -h, --host HOST       Specify the hostname or IP address (default: $default_host)"
   echo "  -u, --user USER       Specify the SSH username (default: $default_user)"
+  echo "  -k, --key KEY         Specify the SSH private key (default: $default_key if exists)"
   echo "  -c, --config CONFIG   Specify the NixOS configuration (default: $default_config)"
   echo "  --no-aleph-builder    Don't use Aleph as a remote builder (use local machine or"
   echo "                         configured remote builders instead)"
   echo "  --help                Show this help message"
   echo
   echo "Example:"
-  echo "  $0 -h fde1:2240:a1ef::1 -u myuser -c my-custom-config"
+  echo "  $0 -h 192.168.4.185 -u aleph"
+  echo "  $0 -h 192.168.4.185 -u aleph -k ./ssh/aleph-phaser"
   exit 1
 }
 
@@ -32,6 +35,7 @@ show_usage() {
 user="$default_user"
 host="$default_host"
 config="$default_config"
+ssh_key=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -u|--user)
       user="$2"
+      shift 2
+      ;;
+    -k|--key)
+      ssh_key="$2"
       shift 2
       ;;
     -c|--config)
@@ -61,10 +69,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Auto-detect SSH key if not specified and default exists
+if [ -z "$ssh_key" ] && [ -f "$default_key" ]; then
+  ssh_key="$default_key"
+fi
+
+# Build SSH options string
+ssh_opts=""
+if [ -n "$ssh_key" ]; then
+  ssh_opts="-i $ssh_key -o StrictHostKeyChecking=no"
+  export NIX_SSHOPTS="$ssh_opts"
+fi
+
 # Construct the target path with the selected configuration
 target=".#nixosConfigurations.$config.config.system.build.toplevel"
 
 log_info "Using host: $host, user: $user, configuration: $config"
+if [ -n "$ssh_key" ]; then
+  log_info "Using SSH key: $ssh_key"
+fi
 if [ "$no_aleph_builder" = true ]; then
   log_info "Not using Aleph as a remote builder"
 fi
@@ -85,6 +108,6 @@ else
 fi
 
 log_info "Activating $out_path on $user@$host"
-ssh "$user@$host" "sudo nix-env -p /nix/var/nix/profiles/system --set ${out_path} \
+ssh $ssh_opts "$user@$host" "sudo nix-env -p /nix/var/nix/profiles/system --set ${out_path} \
   && sudo ${out_path}/bin/switch-to-configuration switch;"
 log_info "Deployment completed successfully"
