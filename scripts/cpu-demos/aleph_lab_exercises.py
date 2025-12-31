@@ -97,11 +97,21 @@ def setup_hardware(sdr_uri, phaser_uri, signal_freq):
     phaser.SignalFreq = signal_freq
     
     print("Configuring SDR...")
-    sdr._ctrl.debug_attrs["adi,frequency-division-duplex-mode-enable"].value = "1"
-    sdr._ctrl.debug_attrs["adi,ensm-enable-txnrx-control-enable"].value = "0"
-    sdr._ctrl.debug_attrs["initialize"].value = "1"
+    
+    # Advanced settings - these may not work through iio-proxy
+    try:
+        sdr._ctrl.debug_attrs["adi,frequency-division-duplex-mode-enable"].value = "1"
+        sdr._ctrl.debug_attrs["adi,ensm-enable-txnrx-control-enable"].value = "0"
+        sdr._ctrl.debug_attrs["initialize"].value = "1"
+        print("  Debug attrs configured")
+    except Exception as e:
+        print(f"  Note: Debug attrs not accessible (normal via iio-proxy)")
+    
     sdr.rx_enabled_channels = [0, 1]
-    sdr._rxadc.set_kernel_buffers_count(1)
+    try:
+        sdr._rxadc.set_kernel_buffers_count(1)
+    except Exception:
+        pass
     sdr.sample_rate = int(30e6)
     sdr.rx_buffer_size = int(1024)
     sdr.rx_rf_bandwidth = int(10e6)

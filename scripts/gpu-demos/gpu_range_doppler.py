@@ -32,6 +32,10 @@ import sys
 import time
 import numpy as np
 
+# Set matplotlib backend before any imports
+import matplotlib
+matplotlib.use('Agg')
+
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -83,19 +87,22 @@ def generate_synthetic_fmcw_data(n_range=1024, n_doppler=256,
     data = noise_amplitude * (xp.random.randn(n_doppler, n_range) + 
                                1j * xp.random.randn(n_doppler, n_range))
     
-    # Add targets as sinusoids in the beat frequency domain
+    # Create coordinate grids for vectorized target generation
+    r_idx = xp.arange(n_range)
+    d_idx = xp.arange(n_doppler)
+    R, D = xp.meshgrid(r_idx, d_idx)  # R is range, D is Doppler
+    
+    # Add targets as sinusoids in the beat frequency domain (vectorized)
     for range_bin, doppler_bin, amplitude_db in targets:
         amplitude = 10 ** (amplitude_db / 20)
         
-        # Create target signal
+        # Create target signal - fully vectorized
         range_phase = 2 * xp.pi * range_bin / n_range
         doppler_phase = 2 * xp.pi * doppler_bin / n_doppler
         
-        for d in range(n_doppler):
-            for r in range(n_range):
-                # Beat frequency component
-                phase = range_phase * r + doppler_phase * d
-                data[d, r] += amplitude * xp.exp(1j * phase)
+        # Compute phase for all (range, doppler) pairs at once
+        phase = range_phase * R + doppler_phase * D
+        data += amplitude * xp.exp(1j * phase)
     
     return data.flatten()
 

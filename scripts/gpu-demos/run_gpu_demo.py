@@ -34,6 +34,10 @@ import time
 import subprocess
 from datetime import datetime
 
+# Set matplotlib backend before any imports that might use it
+import matplotlib
+matplotlib.use('Agg')
+
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

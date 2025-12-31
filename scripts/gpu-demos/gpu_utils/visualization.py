@@ -185,10 +185,20 @@ def save_cfar_plot(spectrum_db, threshold, targets, freq_axis,
     ax.plot(freq_axis, threshold, 'r--', label='CFAR Threshold', linewidth=1.5)
     
     # Highlight detected targets
-    valid_targets = ~np.isnan(targets)
-    if np.any(valid_targets):
-        ax.scatter(freq_axis[valid_targets], spectrum_db[valid_targets],
-                  c='lime', s=50, marker='o', label='Detected Targets', zorder=5)
+    # targets can be either indices (new format) or masked array with NaN (old format)
+    if targets is not None and len(targets) > 0:
+        # Check if targets are indices (integers) or masked values
+        if targets.dtype in [np.int32, np.int64, np.intp]:
+            # New format: targets are indices
+            target_indices = targets
+        else:
+            # Old format: targets are values with NaN for non-detections
+            valid_targets = ~np.isnan(targets)
+            target_indices = np.where(valid_targets)[0]
+        
+        if len(target_indices) > 0:
+            ax.scatter(freq_axis[target_indices], spectrum_db[target_indices],
+                      c='lime', s=50, marker='o', label='Detected Targets', zorder=5)
     
     ax.set_xlabel('Frequency (Hz)')
     ax.set_ylabel('Power (dB)')

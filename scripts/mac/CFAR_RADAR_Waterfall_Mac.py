@@ -40,7 +40,7 @@ import adi
 # ============================================================================
 
 # Aleph IP - socat proxies PlutoSDR's IIO port (30431) to the network
-aleph_ip = "192.168.4.181"
+aleph_ip = "192.168.4.186"
 sdr_ip = f"ip:{aleph_ip}"  # Port 30431 is default for IIO
 
 # Raspberry Pi (Phaser) IP

@@ -8,7 +8,7 @@ Run Phaser demos with Qt visualization on your Mac while the hardware is connect
 ┌─────────────────┐                    ┌─────────────────────┐
 │      Mac        │◄─── Network ──────►│  Aleph (socat)      │
 │  (Qt Display)   │    port 30431      │  TCP proxy to Pluto │
-│                 │                    │  192.168.4.181      │
+│                 │                    │  192.168.4.186      │
 │  pyadi-iio      │                    └─────────────────────┘
 │  PyQt5          │                              │
 │  pyqtgraph      │                              │ USB-Ethernet
@@ -56,12 +56,12 @@ The Aleph runs an iiod server that proxies PlutoSDR access over the network.
 
 Check status:
 ```bash
-ssh aleph-phaser@192.168.4.181 'systemctl status iiod'
+ssh aleph-phaser@192.168.4.186 'systemctl status iiod'
 ```
 
 If not running:
 ```bash
-ssh aleph-phaser@192.168.4.181 'sudo systemctl start iiod'
+ssh aleph-phaser@192.168.4.186 'sudo systemctl start iiod'
 ```
 
 ### 3. Verify Phaser/Pi is accessible
@@ -91,7 +91,10 @@ python3 FMCW_RADAR_Waterfall_Mac.py
 ### FMCW Radar with ChirpSync
 
 FMCW radar using the Pluto TDD engine for synchronized chirp FFT data collection.
-Requires PlutoSDR firmware v0.39 or later.
+
+⚠️ **Limitation**: ChirpSync requires a **physical sync cable** between Phaser and PlutoSDR.
+In the Aleph hybrid architecture (PlutoSDR on Aleph, Phaser on Pi), there is no physical
+sync path, so this demo will likely timeout. Use `FMCW_RADAR_Waterfall_Mac.py` instead.
 
 ```bash
 python3 FMCW_RADAR_Waterfall_ChirpSync_Mac.py
@@ -113,7 +116,10 @@ Features:
 ### CFAR Radar with ChirpSync
 
 CFAR target detection using the Pluto TDD engine for synchronized chirp collection.
-Requires PlutoSDR firmware v0.39 or later.
+
+⚠️ **Limitation**: ChirpSync requires a **physical sync cable** between Phaser and PlutoSDR.
+In the Aleph hybrid architecture (PlutoSDR on Aleph, Phaser on Pi), there is no physical
+sync path, so this demo will likely timeout. Use `CFAR_RADAR_Waterfall_Mac.py` instead.
 
 ```bash
 python3 CFAR_RADAR_Waterfall_ChirpSync_Mac.py
@@ -121,13 +127,15 @@ python3 CFAR_RADAR_Waterfall_ChirpSync_Mac.py
 
 ## Demo Summary
 
-| Script | Radar Type | Description |
-|--------|------------|-------------|
-| `CW_RADAR_Waterfall_Mac.py` | CW | Basic continuous wave radar |
-| `FMCW_RADAR_Waterfall_Mac.py` | FMCW | Frequency modulated, range display |
-| `CFAR_RADAR_Waterfall_Mac.py` | CFAR | Target detection with adaptive threshold |
-| `FMCW_RADAR_Waterfall_ChirpSync_Mac.py` | FMCW | TDD-synced chirp (requires Pluto v0.39+) |
-| `CFAR_RADAR_Waterfall_ChirpSync_Mac.py` | CFAR | TDD-synced CFAR (requires Pluto v0.39+) |
+| Script | Radar Type | Works with Aleph? | Description |
+|--------|------------|-------------------|-------------|
+| `CW_RADAR_Waterfall_Mac.py` | CW | ✅ Yes | Basic continuous wave radar |
+| `FMCW_RADAR_Waterfall_Mac.py` | FMCW | ✅ Yes | Frequency modulated, range display |
+| `CFAR_RADAR_Waterfall_Mac.py` | CFAR | ✅ Yes | Target detection with adaptive threshold |
+| `FMCW_RADAR_Waterfall_ChirpSync_Mac.py` | FMCW | ⚠️ No* | TDD-synced chirp (needs sync cable) |
+| `CFAR_RADAR_Waterfall_ChirpSync_Mac.py` | CFAR | ⚠️ No* | TDD-synced CFAR (needs sync cable) |
+
+\* ChirpSync demos require a physical sync cable between Phaser and PlutoSDR which doesn't exist in the Aleph hybrid setup.
 
 ## Configuration
 
@@ -135,7 +143,7 @@ Edit the IP addresses at the top of each script if your network differs:
 
 ```python
 # Aleph IP - iiod proxies the PlutoSDR on port 30431
-aleph_ip = "192.168.4.181"
+aleph_ip = "192.168.4.186"
 sdr_ip = f"ip:{aleph_ip}:30431"
 
 # Raspberry Pi (Phaser) IP
@@ -166,8 +174,8 @@ Note: Calibration files are stored on the Pi's filesystem, not the Aleph.
 
 ### Connection refused to Aleph
 
-1. Check Aleph is reachable: `ping 192.168.4.181`
-2. Check iiod is running: `ssh aleph-phaser@192.168.4.181 'systemctl status iiod'`
+1. Check Aleph is reachable: `ping 192.168.4.186`
+2. Check iiod is running: `ssh aleph-phaser@192.168.4.186 'systemctl status iiod'`
 3. Check firewall allows port 30431
 
 ### Connection refused to Phaser/Pi
@@ -181,12 +189,12 @@ If the Qt window opens but becomes unresponsive, or you see timeout errors:
 
 1. **Check PlutoSDR connection**: The Pluto may have lost its USB connection
    ```bash
-   ssh aleph-phaser@192.168.4.181 'iio_info -u ip:192.168.2.1 | head -5'
+   ssh aleph-phaser@192.168.4.186 'iio_info -u ip:192.168.2.1 | head -5'
    ```
 
 2. **Restart the iio-proxy service on Aleph**:
    ```bash
-   ssh aleph-phaser@192.168.4.181 'sudo systemctl restart iio-proxy'
+   ssh aleph-phaser@192.168.4.186 'sudo systemctl restart iio-proxy'
    ```
 
 3. **Power cycle the PlutoSDR** if it's in a bad state
@@ -215,5 +223,5 @@ brew install python@3.11
 
 | Service | Host | Port | Description |
 |---------|------|------|-------------|
-| iiod | Aleph (192.168.4.181) | 30431 | PlutoSDR proxy |
+| iiod | Aleph (192.168.4.186) | 30431 | PlutoSDR proxy |
 | iiod | Pi (192.168.4.184) | 30431 | Phaser control |

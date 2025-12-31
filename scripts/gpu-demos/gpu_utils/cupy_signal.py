@@ -171,19 +171,19 @@ def gpu_cfar(spectrum_db, num_guard_cells=10, num_ref_cells=20, bias_db=10, meth
     """
     GPU-accelerated CFAR (Constant False Alarm Rate) detection.
     
-    This is a vectorized implementation that processes the entire spectrum
-    in parallel on the GPU, rather than the sequential CPU implementation.
+    Uses convolution-based approach for true GPU parallelization.
+    Processes entire spectrum in a single parallel operation.
     
     Args:
         spectrum_db: Input spectrum in dB (1D array)
         num_guard_cells: Number of guard cells on each side
         num_ref_cells: Number of reference cells on each side
         bias_db: Detection threshold bias in dB
-        method: 'average', 'greatest', or 'smallest'
+        method: 'average' (only average is supported for GPU-optimized version)
     
     Returns:
         threshold: CFAR threshold array
-        targets: Masked array with only detected targets
+        targets: Indices of detected targets
         timing: Processing time in seconds
     """
     xp = get_backend()
@@ -193,38 +193,36 @@ def gpu_cfar(spectrum_db, num_guard_cells=10, num_ref_cells=20, bias_db=10, meth
     
     start = time.perf_counter()
     
-    # Total cells on each side
+    # Total window size on each side
     total_cells = num_guard_cells + num_ref_cells
     
-    # Initialize threshold array
-    threshold = xp.full_like(spectrum_gpu, xp.min(spectrum_gpu))
+    # Create reference cell kernel (1s for ref cells, 0s for guard cells and CUT)
+    # Kernel structure: [ref_cells | guard_cells | CUT | guard_cells | ref_cells]
+    kernel_size = 2 * total_cells + 1
+    kernel = xp.zeros(kernel_size, dtype=xp.float64)
+    # Lower reference cells
+    kernel[:num_ref_cells] = 1.0
+    # Upper reference cells  
+    kernel[-num_ref_cells:] = 1.0
     
-    # Vectorized CFAR using sliding window
-    # This is much faster than the loop-based approach
-    for center_idx in range(total_cells, N - total_cells):
-        # Lower reference cells
-        lower_start = center_idx - total_cells
-        lower_end = center_idx - num_guard_cells
-        lower_cells = spectrum_gpu[lower_start:lower_end]
-        
-        # Upper reference cells
-        upper_start = center_idx + num_guard_cells + 1
-        upper_end = center_idx + total_cells + 1
-        upper_cells = spectrum_gpu[upper_start:upper_end]
-        
-        if method == 'average':
-            mean_val = (xp.sum(lower_cells) + xp.sum(upper_cells)) / (2 * num_ref_cells)
-        elif method == 'greatest':
-            mean_val = xp.maximum(xp.mean(lower_cells), xp.mean(upper_cells))
-        elif method == 'smallest':
-            mean_val = xp.minimum(xp.mean(lower_cells), xp.mean(upper_cells))
-        else:
-            mean_val = (xp.sum(lower_cells) + xp.sum(upper_cells)) / (2 * num_ref_cells)
-        
-        threshold[center_idx] = mean_val + bias_db
+    # Use convolution to compute sum of reference cells for all positions
+    # This is the key GPU optimization - single parallel operation
+    if _GPU_AVAILABLE:
+        ref_sum = cp.convolve(spectrum_gpu.astype(cp.float64), kernel, mode='same')
+    else:
+        ref_sum = np.convolve(spectrum_gpu.astype(np.float64), kernel, mode='same')
     
-    # Create targets mask
-    targets = xp.where(spectrum_gpu > threshold, spectrum_gpu, xp.nan)
+    # Compute threshold (average of reference cells + bias)
+    num_total_ref = 2 * num_ref_cells
+    threshold = (ref_sum / num_total_ref) + bias_db
+    
+    # Handle edges where we don't have enough reference cells
+    threshold[:total_cells] = xp.max(spectrum_gpu)
+    threshold[-total_cells:] = xp.max(spectrum_gpu)
+    
+    # Find targets (where spectrum exceeds threshold)
+    target_mask = spectrum_gpu > threshold
+    targets = xp.where(target_mask)[0]
     
     if _GPU_AVAILABLE:
         cp.cuda.Stream.null.synchronize()
@@ -238,6 +236,8 @@ def gpu_cfar_2d(rd_map_db, guard_cells=(5, 5), ref_cells=(10, 10), bias_db=15):
     """
     GPU-accelerated 2D CFAR for range-Doppler maps.
     
+    Uses 2D convolution for parallel processing on GPU.
+    
     Args:
         rd_map_db: 2D range-Doppler map in dB
         guard_cells: (guard_doppler, guard_range) tuple
@@ -246,7 +246,7 @@ def gpu_cfar_2d(rd_map_db, guard_cells=(5, 5), ref_cells=(10, 10), bias_db=15):
     
     Returns:
         threshold: 2D threshold array
-        targets: Detected targets
+        targets: Indices of detected targets
         timing: Processing time
     """
     xp = get_backend()
@@ -261,32 +261,27 @@ def gpu_cfar_2d(rd_map_db, guard_cells=(5, 5), ref_cells=(10, 10), bias_db=15):
     total_d = guard_d + ref_d
     total_r = guard_r + ref_r
     
-    # Use convolution-based approach for efficiency
     # Create averaging kernel (excluding guard cells)
     kernel_size = (2 * total_d + 1, 2 * total_r + 1)
-    kernel = xp.ones(kernel_size)
+    kernel = xp.ones(kernel_size, dtype=xp.float64)
     
     # Zero out guard region and center
     kernel[ref_d:ref_d + 2*guard_d + 1, ref_r:ref_r + 2*guard_r + 1] = 0
     kernel = kernel / xp.sum(kernel)
     
-    # Pad input
-    padded = xp.pad(rd_gpu, ((total_d, total_d), (total_r, total_r)), mode='edge')
-    
-    # Compute local average using correlation
-    # For each cell, compute the mean of reference cells
-    threshold = xp.zeros_like(rd_gpu)
-    
-    # Sliding window average (simplified - in practice use scipy.ndimage.convolve)
-    for i in range(n_doppler):
-        for j in range(n_range):
-            region = padded[i:i + kernel_size[0], j:j + kernel_size[1]]
-            threshold[i, j] = xp.sum(region * kernel)
+    # Use scipy.ndimage.convolve for efficient 2D convolution
+    if _GPU_AVAILABLE:
+        from cupyx.scipy import ndimage as ndi
+        threshold = ndi.convolve(rd_gpu.astype(cp.float64), kernel, mode='nearest')
+    else:
+        from scipy import ndimage as ndi
+        threshold = ndi.convolve(rd_gpu.astype(np.float64), kernel, mode='nearest')
     
     threshold = threshold + bias_db
     
     # Detect targets
-    targets = xp.where(rd_gpu > threshold, rd_gpu, xp.nan)
+    target_mask = rd_gpu > threshold
+    targets = xp.where(target_mask)
     
     if _GPU_AVAILABLE:
         cp.cuda.Stream.null.synchronize()
@@ -299,6 +294,8 @@ def gpu_cfar_2d(rd_map_db, guard_cells=(5, 5), ref_cells=(10, 10), bias_db=15):
 def gpu_stft(data, nperseg=256, noverlap=None, window='blackman', nfft=None):
     """
     GPU-accelerated Short-Time Fourier Transform for micro-Doppler analysis.
+    
+    Uses batched FFT for true GPU parallelization.
     
     Args:
         data: Input time-domain signal
@@ -338,24 +335,35 @@ def gpu_stft(data, nperseg=256, noverlap=None, window='blackman', nfft=None):
     else:
         win = xp.ones(nperseg)
     
-    # Pre-allocate output
-    Sxx = xp.zeros((nfft, n_segments), dtype=xp.complex128)
-    
-    # Compute STFT segments
-    for i in range(n_segments):
-        start_idx = i * step
-        segment = data_gpu[start_idx:start_idx + nperseg] * win
-        
-        if _GPU_AVAILABLE:
-            Sxx[:, i] = cp.fft.fft(segment, n=nfft)
-        else:
-            Sxx[:, i] = np.fft.fft(segment, n=nfft)
-    
-    # Take magnitude and shift
+    # Create all segments at once using stride tricks for true parallelization
+    # This extracts overlapping segments without copying data
     if _GPU_AVAILABLE:
-        Sxx = xp.abs(cp.fft.fftshift(Sxx, axes=0))
+        # CuPy approach: use as_strided for zero-copy segment extraction
+        from cupy.lib.stride_tricks import as_strided
+        shape = (n_segments, nperseg)
+        strides = (step * data_gpu.strides[0], data_gpu.strides[0])
+        segments = as_strided(data_gpu, shape=shape, strides=strides)
     else:
-        Sxx = xp.abs(np.fft.fftshift(Sxx, axes=0))
+        # NumPy approach
+        from numpy.lib.stride_tricks import as_strided
+        shape = (n_segments, nperseg)
+        strides = (step * data_gpu.strides[0], data_gpu.strides[0])
+        segments = as_strided(data_gpu, shape=shape, strides=strides)
+    
+    # Apply window to all segments in parallel (broadcast)
+    segments_windowed = segments * win
+    
+    # Batch FFT - compute FFT of all segments at once
+    if _GPU_AVAILABLE:
+        # FFT along last axis (each segment)
+        Sxx = cp.fft.fft(segments_windowed, n=nfft, axis=1)
+        Sxx = cp.fft.fftshift(Sxx, axes=1)
+    else:
+        Sxx = np.fft.fft(segments_windowed, n=nfft, axis=1)
+        Sxx = np.fft.fftshift(Sxx, axes=1)
+    
+    # Take magnitude and transpose to (frequency, time) format
+    Sxx = xp.abs(Sxx.T)
     
     # Create frequency and time arrays
     f = xp.linspace(-0.5, 0.5, nfft)
@@ -396,15 +404,23 @@ def gpu_range_doppler(data, n_range=1024, n_doppler=256, window='blackman',
     
     start = time.perf_counter()
     
-    # Reshape into range x Doppler matrix
-    # Each row is one chirp (range profile)
-    # Each column is one range bin across chirps (Doppler)
-    n_samples = len(data_gpu)
-    if n_samples < n_range * n_doppler:
-        # Pad with zeros if needed
-        data_gpu = xp.pad(data_gpu, (0, n_range * n_doppler - n_samples))
-    
-    matrix = data_gpu[:n_range * n_doppler].reshape(n_doppler, n_range)
+    # Handle both 1D and 2D input
+    # If 2D, assume it's already shaped as (n_doppler, n_range)
+    if data_gpu.ndim == 2:
+        matrix = data_gpu
+        n_doppler, n_range = matrix.shape
+    else:
+        # Reshape 1D data into range x Doppler matrix
+        # Each row is one chirp (range profile)
+        # Each column is one range bin across chirps (Doppler)
+        n_samples = len(data_gpu)
+        total_needed = n_range * n_doppler
+        if n_samples < total_needed:
+            # Pad with zeros if needed
+            pad_size = total_needed - n_samples
+            data_gpu = xp.pad(data_gpu, (0, pad_size))
+        
+        matrix = data_gpu[:total_needed].reshape(n_doppler, n_range)
     
     # Apply 2D window
     if window is not None:

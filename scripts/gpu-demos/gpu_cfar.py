@@ -34,6 +34,10 @@ import sys
 import time
 import numpy as np
 
+# Set matplotlib backend before any imports
+import matplotlib
+matplotlib.use('Agg')
+
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

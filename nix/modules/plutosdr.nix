@@ -48,6 +48,14 @@ in {
   };
 
   config = mkIf cfg.enable {
+    # Set CUDA environment variables for CuPy's NVRTC compiler to find CUDA headers
+    # Required for GPU-accelerated demos to work properly
+    environment.sessionVariables = mkIf cfg.enableGpuDemos {
+      CUDA_PATH = "${pkgs.cudaPackages.cudatoolkit}";
+      # CuPy needs explicit include path for NVRTC runtime compilation
+      CUPY_INCLUDE_PATH = "${pkgs.cudaPackages.cudatoolkit}/include";
+    };
+    
     # Core packages for PlutoSDR and Phaser
     environment.systemPackages = with pkgs; [
       # Core IIO libraries

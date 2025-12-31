@@ -15,7 +15,7 @@ Building on this foundation, the repository includes GPU-accelerated radar proce
 ```
 ┌─────────────────────┐     USB-C      ┌─────────────────┐
 │  Aleph Orin NX      │◄──────────────►│    PlutoSDR     │
-│  (192.168.4.181)    │                │  (192.168.2.1)  │
+│  (192.168.4.186)    │                │  (192.168.2.1)  │
 │                     │                └─────────────────┘
 │  - Data processing  │
 │  - FFT/beamforming  │     WiFi       ┌─────────────────┐
@@ -44,13 +44,13 @@ Add the SSH key and deploy the NixOS configuration to the Aleph:
 
 ```bash
 ssh-add ssh/aleph-phaser
-./deploy.sh -h 192.168.4.181 -u aleph-phaser
+./deploy.sh -h 192.168.4.186 -u aleph-phaser
 ```
 
 Verify connectivity by SSHing to the Aleph and testing both the PlutoSDR and Phaser:
 
 ```bash
-ssh -i ssh/aleph-phaser aleph-phaser@192.168.4.181
+ssh -i ssh/aleph-phaser aleph-phaser@192.168.4.186
 iio_info -u ip:192.168.2.1
 iio_info -u ip:192.168.4.184
 python3 -c "import adi; print(adi.ad9361(uri='ip:192.168.2.1').sample_rate)"
@@ -61,13 +61,22 @@ Demo scripts are automatically deployed to `/opt/phaser/scripts/` on the Aleph. 
 ```bash
 python3 /opt/phaser/scripts/cpu-demos/aleph_minimal_example.py --output-dir /tmp/output
 python3 /opt/phaser/scripts/cpu-demos/aleph_beam_steering.py --output-dir /tmp/output
+# or 
+cd /opt/phaser/scripts/cpu-demos
+python3 run_cpu_demos.py --output-dir /tmp/cpu_results
 ```
 
 For GPU-accelerated demos:
 
 ```bash
 cd /opt/phaser/scripts/gpu-demos
-python3 run_gpu_demo.py --output-dir /tmp/gpu_results
+python3 run_gpu_demo.py --live --output-dir /tmp/gpu_results
+```
+
+Copy back the results to review:
+```bash
+scp -r -i "ssh/aleph-phaser" aleph-phaser@192.168.4.186:/tmp/cpu_results/ ./results/cpu-demos
+scp -r -i "ssh/aleph-phaser" aleph-phaser@192.168.4.186:/tmp/gpu_results/ ./results/gpu-demos
 ```
 
 ## Hardware Requirements
@@ -76,7 +85,7 @@ The setup requires an Aleph Carrier Board (ES02) with an NVIDIA Orin NX 16GB mod
 
 | Device | Address | Connection |
 |--------|---------|------------|
-| Aleph | 192.168.4.181 | WiFi (wlan0) |
+| Aleph | 192.168.4.186 | WiFi (wlan0) |
 | PlutoSDR | 192.168.2.1 | USB-Ethernet (enu1) |
 | Phaser/Pi | 192.168.4.184 | WiFi |
 
@@ -120,7 +129,7 @@ If the PlutoSDR is not detected, check USB connectivity with `lsusb | grep -E "0
 
 If the Phaser or Pi is not accessible, try pinging 192.168.4.184 or scan the network with `nmap -sn 192.168.4.0/24`.
 
-For Python import errors, redeploy to rebuild the pylibiio package with `./deploy.sh -h 192.168.4.181 -u aleph-phaser`.
+For Python import errors, redeploy to rebuild the pylibiio package with `./deploy.sh -h 192.168.4.186 -u aleph-phaser`.
 
 If no HB100 signal appears, check the HB100 battery, aim it directly at the array from about 1 meter distance, and look for a peak approximately 1 MHz offset from DC.
 

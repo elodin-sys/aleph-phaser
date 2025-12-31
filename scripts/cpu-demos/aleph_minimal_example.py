@@ -105,15 +105,27 @@ def main():
     # Configure SDR parameters
     print("Configuring SDR parameters...")
     
-    # Advanced settings
-    my_sdr._ctrl.debug_attrs["adi,frequency-division-duplex-mode-enable"].value = "1"
-    my_sdr._ctrl.debug_attrs["adi,ensm-enable-txnrx-control-enable"].value = "0"
-    my_sdr._ctrl.debug_attrs["initialize"].value = "1"
+    # Advanced settings - these may not work through iio-proxy
+    try:
+        my_sdr._ctrl.debug_attrs["adi,frequency-division-duplex-mode-enable"].value = "1"
+        my_sdr._ctrl.debug_attrs["adi,ensm-enable-txnrx-control-enable"].value = "0"
+        my_sdr._ctrl.debug_attrs["initialize"].value = "1"
+        print("  Debug attrs configured")
+    except Exception as e:
+        print(f"  Note: Debug attrs not accessible (normal via iio-proxy): {type(e).__name__}")
 
     my_sdr.rx_enabled_channels = [0, 1]
-    my_sdr._rxadc.set_kernel_buffers_count(1)
-    rx = my_sdr._ctrl.find_channel("voltage0")
-    rx.attrs["quadrature_tracking_en"].value = "1"
+    
+    try:
+        my_sdr._rxadc.set_kernel_buffers_count(1)
+    except Exception:
+        pass  # May not be available through proxy
+    
+    try:
+        rx = my_sdr._ctrl.find_channel("voltage0")
+        rx.attrs["quadrature_tracking_en"].value = "1"
+    except Exception:
+        pass  # Optional enhancement
 
     # Attenuate TX
     my_sdr.tx_hardwaregain_chan0 = int(-80)
