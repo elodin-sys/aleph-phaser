@@ -7,15 +7,23 @@
   };
 
   inputs = {
-    aleph.url = "github:elodin-sys/elodin/bd596cba681d06bc04088f78e7c16e2ff154c7ba?dir=aleph";
+    aleph.url = "github:elodin-sys/elodin/b676979d0f6d98f5a2873d26e65d34ab1af20eed?dir=aleph";
     flake-utils.follows = "aleph/flake-utils";
     nixpkgs.follows = "aleph/nixpkgs";
+    
+    # Rust overlay for modern Rust toolchain
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    
     self.submodules = true;
   };
 
   outputs = {
     nixpkgs,
     aleph,
+    rust-overlay,
     self,
     ...
   }: rec {
@@ -43,6 +51,13 @@
         };
       };
       python3Packages = final.python3.pkgs;
+      
+      # TUI Radar application (GPU-accelerated Range-Doppler display)
+      # Uses rust-overlay for modern Rust toolchain
+      tui-radar = final.callPackage ./nix/pkgs/tui-radar.nix {
+        appsSrc = ./apps;
+        inherit (final) rust-bin makeRustPlatform;
+      };
     };
     
     nixosModules.default = {config, pkgs, ...}: {
@@ -69,6 +84,7 @@
       # NOTE: Order matters! aleph.overlays.jetpack must come BEFORE aleph.overlays.default
       # so that aleph's gitReposOverlay properly overrides nvidia-jetpack with custom device tree sources
       nixpkgs.overlays = [
+        rust-overlay.overlays.default  # Rust overlay for modern Rust toolchain
         aleph.overlays.jetpack  # Apply jetpack overlay first
         aleph.overlays.default  # Then apply aleph overlay (includes custom gitRepos for devicetree)
         overlays.default        # Add our custom overlay last
@@ -113,6 +129,9 @@
         gnumake
         cmake
         pkg-config
+        
+        # TUI Radar application
+        tui-radar
       ];
 
       users.users.aleph-phaser = {
