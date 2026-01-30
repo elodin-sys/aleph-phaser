@@ -10,18 +10,18 @@
       },
       "locked": {
         "dir": "aleph",
-        "lastModified": 1766846603,
-        "narHash": "sha256-//NUGFmUcbhLMPC51p6StY5awR71bSjSJBsOEW58R84=",
+        "lastModified": 1769643504,
+        "narHash": "sha256-tZz9m0NhltECpfkE5urGUFQezBVzHEuRad8b+iCllr8=",
         "owner": "elodin-sys",
         "repo": "elodin",
-        "rev": "7dba6c5c97d010fa9b57fa370ded20da8e1e4a9c",
+        "rev": "a11108a25a69d10130a57473cdacfbf794e519ef",
         "type": "github"
       },
       "original": {
         "dir": "aleph",
         "owner": "elodin-sys",
-        "ref": "7dba6c5",
         "repo": "elodin",
+        "rev": "a11108a25a69d10130a57473cdacfbf794e519ef",
         "type": "github"
       }
     },
@@ -79,17 +79,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1766182822,
-        "narHash": "sha256-hQUjjQYHbD3oyws7niJRkIaR3a7+DkfZYvQpNCKwPRU=",
+        "lastModified": 1768685536,
+        "narHash": "sha256-94sYZ9jRsrBu24ia4pXEyudpQHCjKyy+4cN98bRrRjo=",
         "owner": "anduril",
         "repo": "jetpack-nixos",
-        "rev": "6e7aa572e435136a26bcf475d70aafdeef117e2d",
+        "rev": "2c98c9d6c326d67ae5f4909db61238d31352e18c",
         "type": "github"
       },
       "original": {
         "owner": "anduril",
         "repo": "jetpack-nixos",
-        "rev": "6e7aa572e435136a26bcf475d70aafdeef117e2d",
+        "rev": "2c98c9d6c326d67ae5f4909db61238d31352e18c",
         "type": "github"
       }
     },
