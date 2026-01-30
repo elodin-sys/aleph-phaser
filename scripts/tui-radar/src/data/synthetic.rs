@@ -1,7 +1,6 @@
 //! Synthetic data generation for testing
 
 use ndarray::Array2;
-use num_complex::Complex;
 use std::f32::consts::PI;
 
 /// Synthetic radar data generator
@@ -94,66 +93,60 @@ impl SyntheticSource {
         }
     }
 
-    /// Generate a frame of synthetic radar data
-    /// Returns complex IQ data that will produce a clean Range-Doppler map after FFT
-    pub fn generate(&mut self) -> Array2<Complex<f32>> {
-        // Generate data in frequency domain (Range-Doppler) then do inverse FFT
-        // to get time-domain data that will FFT back to a clean map
-        let mut rd_magnitude = Array2::zeros((self.n_doppler, self.n_range));
+    /// Generate a Range-Doppler map directly (dB values)
+    /// This bypasses FFT processing for clean synthetic visualization
+    pub fn generate_rd_map(&mut self) -> Array2<f32> {
+        let mut rd_map = Array2::zeros((self.n_doppler, self.n_range));
 
-        // Add noise floor (in linear scale, will be converted)
-        let noise_floor_db = -45.0_f32;
+        // Add smooth noise floor
+        let noise_floor_db = -50.0_f32;
         for d in 0..self.n_doppler {
             for r in 0..self.n_range {
-                // Gaussian noise with some variation
-                let noise_var = self.rng.next_gaussian() * 5.0;
-                rd_magnitude[[d, r]] = noise_floor_db + noise_var;
+                // Smooth Gaussian noise
+                let noise_var = self.rng.next_gaussian() * 3.0;
+                rd_map[[d, r]] = noise_floor_db + noise_var;
             }
         }
 
-        // Add targets as 2D Gaussian peaks
-        let time = self.frame as f32 * 0.1;
+        // Add targets as smooth 2D Gaussian peaks
+        let time = self.frame as f32 * 0.05;
         for target in &self.targets {
-            // Animate target position
+            // Animate target position smoothly
             let range_center = target.range_frac * self.n_range as f32
-                + (time * target.velocity * 10.0).sin() * 15.0;
+                + (time * target.velocity * 8.0).sin() * 20.0;
             let doppler_center = target.doppler_frac * self.n_doppler as f32
-                + (time * target.velocity * 0.5).cos() * 8.0;
+                + (time * 0.3 + target.velocity).sin() * 10.0;
 
-            // Add Gaussian blob
+            // Add smooth Gaussian blob
             for d in 0..self.n_doppler {
                 for r in 0..self.n_range {
                     let range_dist = (r as f32 - range_center) / target.range_sigma;
                     let doppler_dist = (d as f32 - doppler_center) / target.doppler_sigma;
                     let dist_sq = range_dist * range_dist + doppler_dist * doppler_dist;
                     
-                    if dist_sq < 16.0 {  // Only compute within 4 sigma
+                    if dist_sq < 25.0 {  // Only compute within 5 sigma
                         let gauss = (-0.5 * dist_sq).exp();
-                        let target_db = target.amplitude_db * gauss;
+                        // Target amplitude scaled by Gaussian
+                        let target_contribution = target.amplitude_db + 50.0; // Shift to positive
+                        let contribution = target_contribution * gauss;
                         
-                        // Add to existing value (in linear domain for proper combination)
-                        let existing_linear = 10.0_f32.powf(rd_magnitude[[d, r]] / 20.0);
-                        let target_linear = 10.0_f32.powf(target_db / 20.0);
-                        let combined = existing_linear + target_linear;
-                        rd_magnitude[[d, r]] = 20.0 * combined.log10();
+                        // Soft maximum to combine with existing value
+                        let existing = rd_map[[d, r]] + 50.0;
+                        let combined = (existing.exp() + contribution.exp()).ln();
+                        rd_map[[d, r]] = combined - 50.0;
                     }
                 }
             }
         }
 
-        // Convert to complex IQ with random phase (simulates actual radar returns)
-        // This data will go through FFT in the processor and come out similar
-        let mut data = Array2::zeros((self.n_doppler, self.n_range));
-        for d in 0..self.n_doppler {
-            for r in 0..self.n_range {
-                let amplitude = 10.0_f32.powf(rd_magnitude[[d, r]] / 20.0);
-                let phase = 2.0 * PI * self.rng.next_f32();
-                data[[d, r]] = Complex::new(amplitude * phase.cos(), amplitude * phase.sin());
-            }
+        // Normalize so max is 0 dB
+        let max_val = rd_map.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        for val in rd_map.iter_mut() {
+            *val -= max_val;
         }
 
         self.frame += 1;
-        data
+        rd_map
     }
 }
 

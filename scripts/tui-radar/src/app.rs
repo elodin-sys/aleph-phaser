@@ -5,7 +5,7 @@ use ndarray::Array2;
 use std::time::{Duration, Instant};
 
 use crate::config::RadarConfig;
-use crate::data::DataSource;
+use crate::data::{CapturedData, DataSource};
 use crate::processing::RangeDopplerProcessor;
 use crate::ui::Colormap;
 
@@ -106,12 +106,21 @@ impl App {
 
         // Capture data
         let capture_start = Instant::now();
-        let raw_data = self.data_source.capture()?;
+        let captured = self.data_source.capture()?;
         self.capture_time_ms = capture_start.elapsed().as_secs_f32() * 1000.0;
 
-        // Process data
+        // Process data based on type
         let process_start = Instant::now();
-        self.rd_map = self.processor.process(&raw_data, self.mti_enabled);
+        self.rd_map = match captured {
+            CapturedData::RangeDopper(rd_map) => {
+                // Synthetic mode: RD map is already computed
+                rd_map
+            }
+            CapturedData::RawIQ(raw_data) => {
+                // Hardware mode: need FFT processing
+                self.processor.process(&raw_data, self.mti_enabled)
+            }
+        };
         self.processing_time_ms = process_start.elapsed().as_secs_f32() * 1000.0;
 
         // Compute spectra

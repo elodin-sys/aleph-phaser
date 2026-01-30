@@ -11,6 +11,7 @@ use ratatui::{
 use super::colormap::Colormap;
 
 /// Render a 1D spectrum plot
+#[allow(clippy::too_many_arguments)]
 pub fn render_spectrum(
     frame: &mut Frame,
     area: Rect,

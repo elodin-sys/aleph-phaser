@@ -12,6 +12,7 @@ use ratatui::{
 use super::colormap::Colormap;
 
 /// Render a Range-Doppler heatmap using Braille characters and true color
+#[allow(clippy::too_many_arguments)]
 pub fn render_heatmap(
     frame: &mut Frame,
     area: Rect,

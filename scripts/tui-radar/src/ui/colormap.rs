@@ -23,7 +23,7 @@ impl Colormap {
     }
 
     /// Convert a normalized value (0.0 to 1.0) to an RGB color
-    pub fn to_color(&self, value: f32) -> Color {
+    pub fn to_color(self, value: f32) -> Color {
         let v = value.clamp(0.0, 1.0);
         let idx = (v * 255.0) as usize;
         let (r, g, b) = match self {
@@ -36,7 +36,7 @@ impl Colormap {
     }
 
     /// Get the darkest color (for background)
-    pub fn background(&self) -> Color {
+    pub fn background(self) -> Color {
         self.to_color(0.0)
     }
 }

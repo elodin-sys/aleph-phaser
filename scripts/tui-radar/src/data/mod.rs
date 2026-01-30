@@ -16,6 +16,14 @@ use color_eyre::Result;
 use ndarray::Array2;
 use num_complex::Complex;
 
+/// Captured data - either raw IQ for processing or pre-computed RD map
+pub enum CapturedData {
+    /// Raw IQ data that needs FFT processing
+    RawIQ(Array2<Complex<f32>>),
+    /// Pre-computed Range-Doppler map (dB values)
+    RangeDopper(Array2<f32>),
+}
+
 /// Data source abstraction
 pub enum DataSource {
     /// Synthetic data for testing
@@ -40,15 +48,25 @@ impl DataSource {
         Ok(DataSource::Hardware { iio, phaser })
     }
 
-    /// Capture raw IQ data
-    pub fn capture(&mut self) -> Result<Array2<Complex<f32>>> {
+    /// Capture data from the source
+    pub fn capture(&mut self) -> Result<CapturedData> {
         match self {
-            DataSource::Synthetic(src) => Ok(src.generate()),
+            DataSource::Synthetic(src) => {
+                // Synthetic mode returns pre-computed RD map directly
+                // This avoids FFT artifacts in the display
+                Ok(CapturedData::RangeDopper(src.generate_rd_map()))
+            }
             DataSource::Hardware { iio, phaser } => {
-                // Trigger burst and capture
+                // Hardware mode returns raw IQ for processing
                 phaser.trigger_burst()?;
-                iio.capture()
+                Ok(CapturedData::RawIQ(iio.capture()?))
             }
         }
+    }
+
+    /// Check if this is synthetic mode
+    #[allow(dead_code)]
+    pub fn is_synthetic(&self) -> bool {
+        matches!(self, DataSource::Synthetic(_))
     }
 }
