@@ -7,7 +7,7 @@
   };
 
   inputs = {
-    aleph.url = "github:elodin-sys/elodin/a11108a25a69d10130a57473cdacfbf794e519ef?dir=aleph";
+    aleph.url = "github:elodin-sys/elodin/bd596cba681d06bc04088f78e7c16e2ff154c7ba?dir=aleph";
     flake-utils.follows = "aleph/flake-utils";
     nixpkgs.follows = "aleph/nixpkgs";
     self.submodules = true;

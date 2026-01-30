@@ -10,18 +10,18 @@
       },
       "locked": {
         "dir": "aleph",
-        "lastModified": 1769643504,
-        "narHash": "sha256-tZz9m0NhltECpfkE5urGUFQezBVzHEuRad8b+iCllr8=",
+        "lastModified": 1769731810,
+        "narHash": "sha256-MvTjagwznznXBHGlNcwgSteA8MvIPJM/Dh2+i48Eozc=",
         "owner": "elodin-sys",
         "repo": "elodin",
-        "rev": "a11108a25a69d10130a57473cdacfbf794e519ef",
+        "rev": "bd596cba681d06bc04088f78e7c16e2ff154c7ba",
         "type": "github"
       },
       "original": {
         "dir": "aleph",
         "owner": "elodin-sys",
         "repo": "elodin",
-        "rev": "a11108a25a69d10130a57473cdacfbf794e519ef",
+        "rev": "bd596cba681d06bc04088f78e7c16e2ff154c7ba",
         "type": "github"
       }
     },
