@@ -42,7 +42,7 @@ pub fn render_spectrum(
             for (i, &val) in data.iter().enumerate() {
                 let x = x_min + (i as f64 / n as f64) * (x_max - x_min);
                 let y = val as f64;
-                
+
                 // Normalize for color
                 let normalized = ((val - min_db) / (max_db - min_db)).clamp(0.0, 1.0);
                 let color = colormap.to_color(normalized);
@@ -56,8 +56,10 @@ pub fn render_spectrum(
                 // Fill down to the minimum to create a filled effect
                 let fill_steps = 5;
                 for step in 1..=fill_steps {
-                    let fill_y = min_db as f64 + (y - min_db as f64) * (1.0 - step as f64 / fill_steps as f64);
-                    let fill_normalized = ((fill_y as f32 - min_db) / (max_db - min_db)).clamp(0.0, 1.0);
+                    let fill_y = min_db as f64
+                        + (y - min_db as f64) * (1.0 - step as f64 / fill_steps as f64);
+                    let fill_normalized =
+                        ((fill_y as f32 - min_db) / (max_db - min_db)).clamp(0.0, 1.0);
                     let fill_color = colormap.to_color(fill_normalized * 0.5); // Dimmer fill
                     ctx.draw(&Points {
                         coords: &[(x, fill_y)],
@@ -114,7 +116,7 @@ pub fn render_color_scale(
     let gradient_width = inner.width.saturating_sub(8);
     if gradient_width > 0 {
         let gradient_area = Rect::new(inner.x + 4, inner.y, gradient_width, 1);
-        
+
         let mut spans = Vec::new();
         for i in 0..gradient_width as usize {
             let normalized = i as f32 / gradient_width as f32;

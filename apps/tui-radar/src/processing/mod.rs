@@ -1,15 +1,7 @@
 //! Signal processing module
 //!
-//! Provides Range-Doppler map generation with:
-//! - 2D FFT processing
-//! - Windowing functions
-//! - MTI filtering
-//! - GPU acceleration (optional)
-
-mod range_doppler;
-mod window;
-
-#[cfg(feature = "gpu")]
-mod gpu_fft;
-
-pub use range_doppler::RangeDopplerProcessor;
+//! Note: Range-Doppler processing is now handled entirely by the Python backend
+//! (radar_backend.py) which uses CuPy for GPU acceleration.
+//!
+//! This module is kept as a placeholder for potential future Rust-side
+//! processing utilities, but currently contains no active code.

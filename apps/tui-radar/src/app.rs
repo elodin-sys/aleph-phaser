@@ -5,23 +5,20 @@ use ndarray::Array2;
 use std::time::{Duration, Instant};
 
 use crate::config::RadarConfig;
-use crate::data::{CapturedData, DataSource};
-use crate::processing::RangeDopplerProcessor;
+use crate::data::DataSource;
 use crate::ui::Colormap;
 
 /// Application state
 pub struct App {
     /// Radar configuration
     pub config: RadarConfig,
-    /// Data source (synthetic or hardware)
+    /// Data source (Python backend handles both synthetic and hardware)
     data_source: DataSource,
-    /// Signal processor
-    processor: RangeDopplerProcessor,
     /// Current Range-Doppler map (dB)
     pub rd_map: Array2<f32>,
-    /// Range spectrum (sum along Doppler axis)
+    /// Range spectrum (max along Doppler axis)
     pub range_spectrum: Vec<f32>,
-    /// Doppler spectrum (sum along Range axis)
+    /// Doppler spectrum (max along Range axis)
     pub doppler_spectrum: Vec<f32>,
     /// Current colormap
     pub colormap: Colormap,
@@ -35,50 +32,41 @@ pub struct App {
     pub mti_enabled: bool,
     /// Paused state
     pub paused: bool,
-    /// Frame counter
-    pub frame_count: u64,
+    /// Frame counter (for FPS calculation)
+    frame_count: u64,
     /// FPS measurement
     pub fps: f32,
-    /// Last frame time
-    last_frame_time: Instant,
-    /// Processing time (ms)
-    pub processing_time_ms: f32,
-    /// Capture time (ms)
-    pub capture_time_ms: f32,
-    /// Render time (ms)
-    pub render_time_ms: f32,
-    /// Connection status
-    pub sdr_connected: bool,
-    pub phaser_connected: bool,
-    pub gpu_available: bool,
+    /// Last FPS update time
+    last_fps_time: Instant,
+    /// Frame time (capture + processing, ms)
+    pub frame_time_ms: f32,
+    /// Actual dimensions from Python backend
+    pub n_doppler: usize,
+    pub n_range: usize,
+    /// Connection/mode status
+    pub is_synthetic: bool,
 }
 
 impl App {
     /// Create a new application instance
     pub fn new(config: RadarConfig) -> Result<Self> {
-        let n_range = config.n_range;
-        let n_doppler = config.n_doppler;
-        let synthetic = config.synthetic;
+        // Create data source (Python backend)
+        let data_source = DataSource::new(&config)?;
 
-        // Initialize data source
-        let data_source = if config.synthetic {
-            DataSource::new_synthetic(n_range, n_doppler)
-        } else {
-            DataSource::new_hardware(&config.sdr_uri, &config.phaser_uri)?
-        };
+        // Get actual dimensions from the backend
+        let n_doppler = data_source.n_doppler;
+        let n_range = data_source.n_range;
 
-        // Initialize processor
-        let processor = RangeDopplerProcessor::new(n_range, n_doppler);
-
-        // Initialize empty arrays
+        // Initialize empty arrays with correct dimensions
         let rd_map = Array2::zeros((n_doppler, n_range));
         let range_spectrum = vec![0.0; n_range];
         let doppler_spectrum = vec![0.0; n_doppler];
 
+        let is_synthetic = config.synthetic;
+
         Ok(Self {
             config,
             data_source,
-            processor,
             rd_map,
             range_spectrum,
             doppler_spectrum,
@@ -90,49 +78,33 @@ impl App {
             paused: false,
             frame_count: 0,
             fps: 0.0,
-            last_frame_time: Instant::now(),
-            processing_time_ms: 0.0,
-            capture_time_ms: 0.0,
-            render_time_ms: 0.0,
-            sdr_connected: synthetic,
-            phaser_connected: synthetic,
-            gpu_available: cfg!(feature = "gpu"),
+            last_fps_time: Instant::now(),
+            frame_time_ms: 0.0,
+            n_doppler,
+            n_range,
+            is_synthetic,
         })
     }
 
     /// Update application state (called each frame)
     pub fn update(&mut self) -> Result<()> {
-        let _frame_start = Instant::now();
+        let frame_start = Instant::now();
 
-        // Capture data
-        let capture_start = Instant::now();
-        let captured = self.data_source.capture()?;
-        self.capture_time_ms = capture_start.elapsed().as_secs_f32() * 1000.0;
+        // Capture and process frame (all done in Python)
+        self.rd_map = self.data_source.capture()?;
 
-        // Process data based on type
-        let process_start = Instant::now();
-        self.rd_map = match captured {
-            CapturedData::RangeDopper(rd_map) => {
-                // Synthetic mode: RD map is already computed
-                rd_map
-            }
-            CapturedData::RawIQ(raw_data) => {
-                // Hardware mode: need FFT processing
-                self.processor.process(&raw_data, self.mti_enabled)
-            }
-        };
-        self.processing_time_ms = process_start.elapsed().as_secs_f32() * 1000.0;
+        self.frame_time_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
 
-        // Compute spectra
+        // Compute 1D spectra for side displays
         self.compute_spectra();
 
-        // Update timing
+        // Update FPS counter
         self.frame_count += 1;
-        let elapsed = self.last_frame_time.elapsed();
+        let elapsed = self.last_fps_time.elapsed();
         if elapsed >= Duration::from_secs(1) {
             self.fps = self.frame_count as f32 / elapsed.as_secs_f32();
             self.frame_count = 0;
-            self.last_frame_time = Instant::now();
+            self.last_fps_time = Instant::now();
         }
 
         Ok(())
@@ -144,6 +116,7 @@ impl App {
 
         // Range spectrum: max along Doppler axis for each range bin
         self.range_spectrum.clear();
+        self.range_spectrum.reserve(n_range);
         for r in 0..n_range {
             let max_val = (0..n_doppler)
                 .map(|d| self.rd_map[[d, r]])
@@ -153,6 +126,7 @@ impl App {
 
         // Doppler spectrum: max along Range axis for each Doppler bin
         self.doppler_spectrum.clear();
+        self.doppler_spectrum.reserve(n_doppler);
         for d in 0..n_doppler {
             let max_val = (0..n_range)
                 .map(|r| self.rd_map[[d, r]])
@@ -189,12 +163,15 @@ impl App {
     /// Toggle MTI filter
     pub fn toggle_mti(&mut self) {
         self.mti_enabled = !self.mti_enabled;
+        // Propagate to Python backend
+        let _ = self.data_source.set_mti(self.mti_enabled);
     }
 
     /// Reset to default state
     pub fn reset(&mut self) {
         self.gain_db = 0.0;
         self.mti_enabled = false;
+        let _ = self.data_source.set_mti(false);
         self.colormap = Colormap::Inferno;
     }
 
@@ -207,9 +184,10 @@ impl App {
     pub fn display_max_db(&self) -> f32 {
         self.max_db - self.gain_db
     }
+}
 
-    /// Get total processing time
-    pub fn total_time_ms(&self) -> f32 {
-        self.capture_time_ms + self.processing_time_ms + self.render_time_ms
+impl Drop for App {
+    fn drop(&mut self) {
+        self.data_source.shutdown();
     }
 }

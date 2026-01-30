@@ -51,17 +51,19 @@ pub fn render_heatmap(
                 // Map canvas Y to doppler index (integer division for clean sampling)
                 let d_idx = (cy * n_doppler) / canvas_height;
                 let d_idx = d_idx.min(n_doppler - 1);
-                
+
                 // Map doppler index to world Y coordinate
-                let y = min_doppler + (d_idx as f64 + 0.5) / n_doppler as f64 * (max_doppler - min_doppler);
+                let y = min_doppler
+                    + (d_idx as f64 + 0.5) / n_doppler as f64 * (max_doppler - min_doppler);
 
                 for cx in 0..canvas_width {
                     // Map canvas X to range index
                     let r_idx = (cx * n_range) / canvas_width;
                     let r_idx = r_idx.min(n_range - 1);
-                    
+
                     // Map range index to world X coordinate
-                    let x = min_range + (r_idx as f64 + 0.5) / n_range as f64 * (max_range - min_range);
+                    let x =
+                        min_range + (r_idx as f64 + 0.5) / n_range as f64 * (max_range - min_range);
 
                     // Get the dB value and normalize to 0-1
                     let val = rd_map[[d_idx, r_idx]];
@@ -95,13 +97,9 @@ pub fn render_axis_labels(
     let x_label_area = Rect::new(area.x, area.bottom() - 1, area.width, 1);
     let x_label = Line::from(vec![
         Span::raw(format!("{:.0}", min_range)),
-        Span::raw(" ".repeat(
-            (area.width as usize).saturating_sub(20) / 2,
-        )),
+        Span::raw(" ".repeat((area.width as usize).saturating_sub(20) / 2)),
         Span::styled("Range (m)", Style::default().fg(Color::Yellow)),
-        Span::raw(" ".repeat(
-            (area.width as usize).saturating_sub(20) / 2,
-        )),
+        Span::raw(" ".repeat((area.width as usize).saturating_sub(20) / 2)),
         Span::raw(format!("{:.0}", max_range)),
     ]);
     frame.render_widget(x_label, x_label_area);

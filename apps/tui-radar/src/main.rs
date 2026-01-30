@@ -3,6 +3,10 @@
 //! A real-time terminal user interface for visualizing Range-Doppler maps
 //! from the CN0566 Phaser radar system, designed for high frame rates
 //! over SSH connections to the Aleph/Orin NX platform.
+//!
+//! All radar processing is handled by the Python backend (radar_backend.py)
+//! which uses CuPy for GPU acceleration. The Rust TUI only handles display
+//! and user input.
 
 mod app;
 mod config;
@@ -25,6 +29,9 @@ use app::App;
 use config::RadarConfig;
 
 /// GPU-Accelerated Range-Doppler Radar TUI
+///
+/// Displays real-time Range-Doppler maps from the CN0566 Phaser radar.
+/// Processing is done in Python with CuPy GPU acceleration.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -44,16 +51,12 @@ struct Args {
     #[arg(long, default_value = "30")]
     fps: u32,
 
-    /// Number of range bins
-    #[arg(long, default_value = "512")]
-    n_range: usize,
-
-    /// Number of Doppler bins (chirps)
+    /// Number of Doppler bins / chirps (matches Jon's num_chirps)
     #[arg(long, default_value = "512")]
     n_doppler: usize,
 
     /// Maximum range to display (meters)
-    #[arg(long, default_value = "150.0")]
+    #[arg(long, default_value = "10.0")]
     max_range: f64,
 
     /// Chirp bandwidth (Hz)
@@ -63,28 +66,54 @@ struct Args {
     /// Ramp time (microseconds)
     #[arg(long, default_value = "500")]
     ramp_time_us: u32,
+
+    /// Sample rate (Hz)
+    #[arg(long, default_value = "4000000")]
+    sample_rate: u64,
+
+    /// Receive gain (dB)
+    #[arg(long, default_value = "30")]
+    rx_gain: i32,
 }
 
 fn main() -> Result<()> {
     color_eyre::install()?;
     let args = Args::parse();
 
-    // Create radar configuration
+    // Create radar configuration (n_range is calculated by Python backend)
     let config = RadarConfig {
         sdr_uri: args.sdr_uri,
         phaser_uri: args.phaser_uri,
         synthetic: args.synthetic,
         target_fps: args.fps,
-        n_range: args.n_range,
         n_doppler: args.n_doppler,
         max_range: args.max_range,
         chirp_bw: args.chirp_bw,
         ramp_time_us: args.ramp_time_us,
-        sample_rate: 4_000_000,
+        sample_rate: args.sample_rate,
         center_freq: 2_100_000_000,
         output_freq: 9_900_000_000,
-        rx_gain: 30,
+        rx_gain: args.rx_gain,
     };
+
+    // Print configuration summary
+    eprintln!("TUI Radar Configuration:");
+    eprintln!(
+        "  Mode: {}",
+        if config.synthetic {
+            "Synthetic"
+        } else {
+            "Hardware"
+        }
+    );
+    eprintln!("  Doppler bins (chirps): {}", config.n_doppler);
+    eprintln!("  Expected range bins: {}", config.expected_n_range());
+    eprintln!("  Target FPS: {}", config.target_fps);
+    if !config.synthetic {
+        eprintln!("  SDR URI: {}", config.sdr_uri);
+        eprintln!("  Phaser URI: {}", config.phaser_uri);
+    }
+    eprintln!();
 
     // Setup terminal
     enable_raw_mode()?;

@@ -1,48 +1,53 @@
 //! Radar configuration parameters
+//!
+//! Note: The Python backend (radar_backend.py) calculates n_range automatically
+//! from ramp_time_us and sample_rate to match Jon's script exactly:
+//!   n_range = int(0.9 * ramp_time_us * sample_rate / 1e6)
 
 use serde::{Deserialize, Serialize};
 
 /// Radar system configuration
+///
+/// These parameters are passed to the Python RadarBackend which handles
+/// all radar processing. Parameters match Jon's Range_Doppler_Plot_Aleph.py.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RadarConfig {
-    /// PlutoSDR URI
+    /// PlutoSDR URI (e.g., "ip:192.168.2.1")
     pub sdr_uri: String,
-    /// Phaser/Raspberry Pi URI
+    /// Phaser/Raspberry Pi URI (e.g., "ip:192.168.4.184")
     pub phaser_uri: String,
     /// Use synthetic data instead of hardware
     pub synthetic: bool,
-    /// Target frame rate (FPS)
+    /// Target frame rate (FPS) for TUI display
     pub target_fps: u32,
-    /// Number of range bins
-    pub n_range: usize,
-    /// Number of Doppler bins (chirps)
+    /// Number of Doppler bins (num_chirps in Jon's script)
     pub n_doppler: usize,
-    /// Maximum range to display (meters)
+    /// Maximum range to display (meters) - display limit only
     pub max_range: f64,
-    /// Chirp bandwidth (Hz)
+    /// Chirp bandwidth (Hz) - default 500 MHz
     pub chirp_bw: f64,
-    /// Ramp time (microseconds)
+    /// Ramp time (microseconds) - default 500 us
     pub ramp_time_us: u32,
-    /// Sample rate (Hz)
+    /// Sample rate (Hz) - default 4 MHz
     pub sample_rate: u64,
-    /// Center frequency (Hz)
+    /// SDR center frequency (Hz) - default 2.1 GHz
     pub center_freq: u64,
-    /// Output frequency (Hz)
+    /// Phaser output frequency (Hz) - default 9.9 GHz
     pub output_freq: u64,
-    /// Receive gain (dB)
+    /// Receive gain (dB) - default 30
     pub rx_gain: i32,
 }
 
 impl Default for RadarConfig {
     fn default() -> Self {
+        // Default values match Jon's Range_Doppler_Plot_Aleph.py
         Self {
             sdr_uri: "ip:192.168.2.1".to_string(),
             phaser_uri: "ip:192.168.4.184".to_string(),
             synthetic: true,
             target_fps: 30,
-            n_range: 512,
-            n_doppler: 512,
-            max_range: 150.0,
+            n_doppler: 512,  // num_chirps in Jon's script
+            max_range: 10.0, // Match Jon's display default
             chirp_bw: 500_000_000.0,
             ramp_time_us: 500,
             sample_rate: 4_000_000,
@@ -54,45 +59,22 @@ impl Default for RadarConfig {
 }
 
 impl RadarConfig {
-    /// Calculate range resolution in meters
-    #[allow(dead_code)]
-    pub fn range_resolution(&self) -> f64 {
-        const C: f64 = 3e8; // Speed of light
-        C / (2.0 * self.chirp_bw)
-    }
-
-    /// Calculate maximum unambiguous range in meters
-    #[allow(dead_code)]
-    pub fn max_unambiguous_range(&self) -> f64 {
-        const C: f64 = 3e8;
+    /// Calculate expected n_range (for informational purposes)
+    /// The actual value is calculated by Python backend
+    pub fn expected_n_range(&self) -> usize {
         let ramp_time_s = self.ramp_time_us as f64 / 1e6;
-        C * ramp_time_s * self.sample_rate as f64 / (2.0 * self.chirp_bw)
+        let begin_offset = 0.1 * ramp_time_s;
+        ((ramp_time_s - begin_offset) * self.sample_rate as f64) as usize
     }
 
-    /// Calculate Doppler resolution in Hz
-    #[allow(dead_code)]
-    pub fn doppler_resolution(&self) -> f64 {
-        let pri_s = self.ramp_time_us as f64 / 1e6 + 0.0002; // PRI with margin
-        1.0 / (self.n_doppler as f64 * pri_s)
+    /// Calculate PRI (Pulse Repetition Interval) in seconds
+    fn pri_s(&self) -> f64 {
+        self.ramp_time_us as f64 / 1e6 + 0.0002 // Match Jon's: ramp_time/1e3 + 0.2 ms
     }
 
     /// Calculate maximum Doppler frequency in Hz
     pub fn max_doppler(&self) -> f64 {
-        let pri_s = self.ramp_time_us as f64 / 1e6 + 0.0002;
-        let prf = 1.0 / pri_s;
+        let prf = 1.0 / self.pri_s();
         prf / 2.0
-    }
-
-    /// Calculate wavelength in meters
-    #[allow(dead_code)]
-    pub fn wavelength(&self) -> f64 {
-        const C: f64 = 3e8;
-        C / self.output_freq as f64
-    }
-
-    /// Convert Doppler frequency to velocity in m/s
-    #[allow(dead_code)]
-    pub fn doppler_to_velocity(&self, doppler_hz: f64) -> f64 {
-        doppler_hz * self.wavelength() / 2.0
     }
 }

@@ -5,9 +5,9 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use crate::app::App;
 use super::heatmap::render_heatmap;
 use super::spectrum::{render_color_scale, render_spectrum};
+use crate::app::App;
 
 /// Draw the complete dashboard
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -17,10 +17,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Min(20),    // Content
-            Constraint::Length(3),  // Performance bar
-            Constraint::Length(3),  // Controls bar
+            Constraint::Length(3), // Header
+            Constraint::Min(20),   // Content
+            Constraint::Length(3), // Performance bar
+            Constraint::Length(3), // Controls bar
         ])
         .split(size);
 
@@ -31,8 +31,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(75),  // Main heatmap
-            Constraint::Percentage(25),  // Side panels
+            Constraint::Percentage(75), // Main heatmap
+            Constraint::Percentage(25), // Side panels
         ])
         .split(main_chunks[1]);
 
@@ -57,9 +57,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let side_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(35),  // Range spectrum
-            Constraint::Percentage(35),  // Doppler spectrum
-            Constraint::Percentage(30),  // Color scale + info
+            Constraint::Percentage(35), // Range spectrum
+            Constraint::Percentage(35), // Doppler spectrum
+            Constraint::Percentage(30), // Color scale + info
         ])
         .split(content_chunks[1]);
 
@@ -107,46 +107,46 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
 /// Draw the header bar
 fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
-    let status_style = |connected: bool| {
-        if connected {
-            Style::default().fg(Color::Green)
-        } else {
-            Style::default().fg(Color::Red)
-        }
+    let mode = if app.is_synthetic {
+        "SYNTHETIC"
+    } else {
+        "HARDWARE"
     };
-
-    let mode = if app.config.synthetic { "SYNTHETIC" } else { "LIVE" };
     let mti = if app.mti_enabled { "ON" } else { "OFF" };
 
+    // Status indicator colors
+    let mode_color = if app.is_synthetic {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+
     let header = Paragraph::new(Line::from(vec![
-        Span::styled(" GPU RANGE-DOPPLER RADAR ", Style::default().fg(Color::Cyan).bold()),
+        Span::styled(
+            " GPU RANGE-DOPPLER RADAR ",
+            Style::default().fg(Color::Cyan).bold(),
+        ),
         Span::raw("│"),
         Span::styled(" Aleph/Orin NX ", Style::default().fg(Color::Yellow)),
         Span::raw("│"),
-        Span::styled(format!(" FPS: {:.1} ", app.fps), Style::default().fg(Color::Green)),
+        Span::styled(
+            format!(" FPS: {:.1} ", app.fps),
+            Style::default().fg(Color::Green),
+        ),
         Span::raw("│"),
         Span::styled(
-            format!(" GPU: {:.1}ms ", app.processing_time_ms),
+            format!(" Frame: {:.1}ms ", app.frame_time_ms),
             Style::default().fg(Color::Magenta),
         ),
         Span::raw("│"),
-        Span::styled(format!(" Mode: {} ", mode), Style::default().fg(Color::White)),
+        Span::styled(format!(" Mode: {} ", mode), Style::default().fg(mode_color)),
         Span::raw("│"),
         Span::styled(format!(" MTI: {} ", mti), Style::default().fg(Color::White)),
         Span::raw("│"),
         Span::styled(
-            format!(" {} chirps × {} samples ", app.config.n_doppler, app.config.n_range),
+            format!(" {} chirps × {} samples ", app.n_doppler, app.n_range),
             Style::default().fg(Color::White),
         ),
-        Span::raw("│"),
-        Span::styled(" SDR ", status_style(app.sdr_connected)),
-        Span::styled("●", status_style(app.sdr_connected)),
-        Span::raw(" "),
-        Span::styled(" Phaser ", status_style(app.phaser_connected)),
-        Span::styled("●", status_style(app.phaser_connected)),
-        Span::raw(" "),
-        Span::styled(" GPU ", status_style(app.gpu_available)),
-        Span::styled("●", status_style(app.gpu_available)),
     ]))
     .block(Block::default().borders(Borders::ALL));
 
@@ -155,9 +155,9 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
 
 /// Draw the performance metrics bar
 fn draw_performance_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let speedup = if app.processing_time_ms > 0.0 {
+    let speedup = if app.frame_time_ms > 0.0 {
         // Estimate CPU time as ~50ms for comparison
-        50.0 / app.processing_time_ms
+        50.0 / app.frame_time_ms
     } else {
         1.0
     };
@@ -166,22 +166,22 @@ fn draw_performance_bar(frame: &mut Frame, area: Rect, app: &App) {
         Span::styled(" PERFORMANCE ", Style::default().fg(Color::Cyan).bold()),
         Span::raw("│"),
         Span::styled(
-            format!(" Processing: {:.1}ms ", app.processing_time_ms),
+            format!(" Frame Time: {:.1}ms ", app.frame_time_ms),
             Style::default().fg(Color::Green),
         ),
         Span::raw("│"),
         Span::styled(
-            format!(" Capture: {:.1}ms ", app.capture_time_ms),
+            format!(" Target FPS: {} ", app.config.target_fps),
             Style::default().fg(Color::Yellow),
         ),
         Span::raw("│"),
         Span::styled(
-            format!(" Total: {:.1}ms ", app.total_time_ms()),
+            format!(" Actual FPS: {:.1} ", app.fps),
             Style::default().fg(Color::Magenta),
         ),
         Span::raw("│"),
         Span::styled(
-            format!(" Speedup: {:.1}x ", speedup),
+            format!(" GPU Speedup: {:.1}x ", speedup),
             Style::default().fg(Color::Cyan),
         ),
         Span::raw("│"),

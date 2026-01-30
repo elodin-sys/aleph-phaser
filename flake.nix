@@ -24,10 +24,58 @@
     nixpkgs,
     aleph,
     rust-overlay,
+    flake-utils,
     self,
     ...
-  }: rec {
-    system = "aarch64-linux";
+  }: let
+    # Target system for NixOS configuration
+    targetSystem = "aarch64-linux";
+    
+    # Systems supported for local development
+    devSystems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
+    
+    # Generate devShells for each system
+    devShellOutputs = flake-utils.lib.eachSystem devSystems (system: let
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ rust-overlay.overlays.default ];
+      };
+      
+      # Python with numpy for radar backend
+      pythonEnv = pkgs.python312.withPackages (ps: [
+        ps.numpy
+      ]);
+      
+      # Rust toolchain
+      rustToolchain = pkgs.rust-bin.stable.latest.default;
+    in {
+      devShells.default = pkgs.mkShell {
+        name = "tui-radar-dev";
+        
+        buildInputs = [
+          pythonEnv
+          rustToolchain
+          pkgs.pkg-config
+        ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+          pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
+        ];
+        
+        env = {
+          PYO3_PYTHON = "${pythonEnv}/bin/python3";
+        };
+        
+        shellHook = ''
+          echo "tui-radar development shell"
+          echo "Python: ${pythonEnv}/bin/python3"
+          echo "Rust: $(rustc --version)"
+          echo ""
+          echo "Build: cargo build --release"
+          echo "Run:   ./target/release/tui-radar --synthetic"
+        '';
+      };
+    });
+  in devShellOutputs // rec {
+    system = targetSystem;
     
     # Define custom overlay for our packages
     overlays.default = final: prev: {

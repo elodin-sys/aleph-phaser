@@ -1,8 +1,5 @@
 fn main() {
-    // PyO3 configuration is only needed when the python feature is enabled
-    #[cfg(feature = "python")]
-    {
-        // PyO3 configuration is automatic with the auto-initialize feature
-        // No additional link args needed for embedding Python
-    }
+    // PyO3 build configuration is handled automatically by the pyo3 crate
+    // when using the auto-initialize feature. No additional configuration needed
+    // for embedding Python in a Rust binary.
 }
