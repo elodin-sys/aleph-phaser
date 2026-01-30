@@ -9,25 +9,80 @@ pub struct SyntheticSource {
     n_range: usize,
     n_doppler: usize,
     frame: u64,
-    /// Simulated targets: (range_bin, doppler_bin, amplitude_db, phase_rate)
-    targets: Vec<(f32, f32, f32, f32)>,
+    /// Simulated targets: (range_frac, doppler_frac, amplitude_db, velocity)
+    targets: Vec<Target>,
+    rng: Rng,
+}
+
+/// A synthetic radar target
+struct Target {
+    range_frac: f32,    // 0.0 to 1.0 position in range
+    doppler_frac: f32,  // 0.0 to 1.0 position in doppler
+    amplitude_db: f32,  // Signal strength in dB
+    velocity: f32,      // Motion rate
+    range_sigma: f32,   // Target spread in range
+    doppler_sigma: f32, // Target spread in doppler
 }
 
 impl SyntheticSource {
     /// Create a new synthetic data source
     pub fn new(n_range: usize, n_doppler: usize) -> Self {
-        // Create some interesting simulated targets
+        // Create interesting simulated targets
         let targets = vec![
-            // Stationary target at mid-range
-            (n_range as f32 * 0.3, n_doppler as f32 * 0.5, -10.0, 0.0),
-            // Moving target approaching
-            (n_range as f32 * 0.5, n_doppler as f32 * 0.65, -15.0, 0.02),
-            // Moving target receding
-            (n_range as f32 * 0.7, n_doppler as f32 * 0.35, -12.0, -0.015),
-            // Fast moving target (like drone)
-            (n_range as f32 * 0.4, n_doppler as f32 * 0.8, -18.0, 0.05),
-            // Close slow target
-            (n_range as f32 * 0.15, n_doppler as f32 * 0.52, -8.0, 0.005),
+            // Stationary target at mid-range (like a building or parked car)
+            Target {
+                range_frac: 0.3,
+                doppler_frac: 0.5,  // Zero Doppler (center)
+                amplitude_db: -8.0,
+                velocity: 0.0,
+                range_sigma: 8.0,
+                doppler_sigma: 6.0,
+            },
+            // Moving target approaching (car coming toward radar)
+            Target {
+                range_frac: 0.5,
+                doppler_frac: 0.65,
+                amplitude_db: -12.0,
+                velocity: 0.3,
+                range_sigma: 6.0,
+                doppler_sigma: 8.0,
+            },
+            // Moving target receding (car going away)
+            Target {
+                range_frac: 0.7,
+                doppler_frac: 0.35,
+                amplitude_db: -10.0,
+                velocity: -0.2,
+                range_sigma: 7.0,
+                doppler_sigma: 7.0,
+            },
+            // Fast moving target (drone or bird)
+            Target {
+                range_frac: 0.4,
+                doppler_frac: 0.78,
+                amplitude_db: -18.0,
+                velocity: 0.8,
+                range_sigma: 4.0,
+                doppler_sigma: 10.0,
+            },
+            // Close slow target (person walking)
+            Target {
+                range_frac: 0.15,
+                doppler_frac: 0.53,
+                amplitude_db: -6.0,
+                velocity: 0.05,
+                range_sigma: 5.0,
+                doppler_sigma: 12.0,
+            },
+            // Distant weak target
+            Target {
+                range_frac: 0.85,
+                doppler_frac: 0.45,
+                amplitude_db: -25.0,
+                velocity: -0.1,
+                range_sigma: 10.0,
+                doppler_sigma: 5.0,
+            },
         ];
 
         Self {
@@ -35,48 +90,65 @@ impl SyntheticSource {
             n_doppler,
             frame: 0,
             targets,
+            rng: Rng::new(42),
         }
     }
 
     /// Generate a frame of synthetic radar data
+    /// Returns complex IQ data that will produce a clean Range-Doppler map after FFT
     pub fn generate(&mut self) -> Array2<Complex<f32>> {
-        let mut data = Array2::zeros((self.n_doppler, self.n_range));
-        let noise_level = -50.0_f32; // dB
-        let noise_amplitude = 10.0_f32.powf(noise_level / 20.0);
+        // Generate data in frequency domain (Range-Doppler) then do inverse FFT
+        // to get time-domain data that will FFT back to a clean map
+        let mut rd_magnitude = Array2::zeros((self.n_doppler, self.n_range));
 
-        // Add noise floor
+        // Add noise floor (in linear scale, will be converted)
+        let noise_floor_db = -45.0_f32;
         for d in 0..self.n_doppler {
             for r in 0..self.n_range {
-                let noise_i = (rand_f32() - 0.5) * 2.0 * noise_amplitude;
-                let noise_q = (rand_f32() - 0.5) * 2.0 * noise_amplitude;
-                data[[d, r]] = Complex::new(noise_i, noise_q);
+                // Gaussian noise with some variation
+                let noise_var = self.rng.next_gaussian() * 5.0;
+                rd_magnitude[[d, r]] = noise_floor_db + noise_var;
             }
         }
 
-        // Add targets as spread Gaussian peaks with motion
-        for (base_range, base_doppler, amp_db, phase_rate) in &self.targets {
-            let amplitude = 10.0_f32.powf(*amp_db / 20.0);
-            
-            // Add motion over time
-            let range_pos = *base_range + (self.frame as f32 * phase_rate * 5.0) % 20.0 - 10.0;
-            let doppler_pos = *base_doppler + (self.frame as f32 * 0.01).sin() * 5.0;
+        // Add targets as 2D Gaussian peaks
+        let time = self.frame as f32 * 0.1;
+        for target in &self.targets {
+            // Animate target position
+            let range_center = target.range_frac * self.n_range as f32
+                + (time * target.velocity * 10.0).sin() * 15.0;
+            let doppler_center = target.doppler_frac * self.n_doppler as f32
+                + (time * target.velocity * 0.5).cos() * 8.0;
 
-            // Create a spread target (2D Gaussian)
-            let range_sigma = 3.0;
-            let doppler_sigma = 4.0;
-
+            // Add Gaussian blob
             for d in 0..self.n_doppler {
                 for r in 0..self.n_range {
-                    let range_dist = (r as f32 - range_pos) / range_sigma;
-                    let doppler_dist = (d as f32 - doppler_pos) / doppler_sigma;
-                    let gauss = (-0.5 * (range_dist * range_dist + doppler_dist * doppler_dist)).exp();
+                    let range_dist = (r as f32 - range_center) / target.range_sigma;
+                    let doppler_dist = (d as f32 - doppler_center) / target.doppler_sigma;
+                    let dist_sq = range_dist * range_dist + doppler_dist * doppler_dist;
                     
-                    if gauss > 0.01 {
-                        let phase = 2.0 * PI * rand_f32();
-                        let signal = amplitude * gauss * Complex::new(phase.cos(), phase.sin());
-                        data[[d, r]] += signal;
+                    if dist_sq < 16.0 {  // Only compute within 4 sigma
+                        let gauss = (-0.5 * dist_sq).exp();
+                        let target_db = target.amplitude_db * gauss;
+                        
+                        // Add to existing value (in linear domain for proper combination)
+                        let existing_linear = 10.0_f32.powf(rd_magnitude[[d, r]] / 20.0);
+                        let target_linear = 10.0_f32.powf(target_db / 20.0);
+                        let combined = existing_linear + target_linear;
+                        rd_magnitude[[d, r]] = 20.0 * combined.log10();
                     }
                 }
+            }
+        }
+
+        // Convert to complex IQ with random phase (simulates actual radar returns)
+        // This data will go through FFT in the processor and come out similar
+        let mut data = Array2::zeros((self.n_doppler, self.n_range));
+        for d in 0..self.n_doppler {
+            for r in 0..self.n_range {
+                let amplitude = 10.0_f32.powf(rd_magnitude[[d, r]] / 20.0);
+                let phase = 2.0 * PI * self.rng.next_f32();
+                data[[d, r]] = Complex::new(amplitude * phase.cos(), amplitude * phase.sin());
             }
         }
 
@@ -85,18 +157,50 @@ impl SyntheticSource {
     }
 }
 
-/// Simple pseudo-random number generator (0.0 to 1.0)
-fn rand_f32() -> f32 {
-    use std::cell::Cell;
-    thread_local! {
-        static SEED: Cell<u64> = Cell::new(12345);
+/// High-quality pseudo-random number generator (xoshiro256**)
+struct Rng {
+    state: [u64; 4],
+}
+
+impl Rng {
+    fn new(seed: u64) -> Self {
+        // Initialize state using SplitMix64
+        let mut state = [0u64; 4];
+        let mut x = seed;
+        for s in state.iter_mut() {
+            x = x.wrapping_add(0x9e3779b97f4a7c15);
+            let mut z = x;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+            *s = z ^ (z >> 31);
+        }
+        Self { state }
     }
-    SEED.with(|seed| {
-        let mut s = seed.get();
-        s ^= s << 13;
-        s ^= s >> 7;
-        s ^= s << 17;
-        seed.set(s);
-        (s as f32) / (u64::MAX as f32)
-    })
+
+    fn next_u64(&mut self) -> u64 {
+        let result = self.state[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);
+        let t = self.state[1] << 17;
+
+        self.state[2] ^= self.state[0];
+        self.state[3] ^= self.state[1];
+        self.state[1] ^= self.state[2];
+        self.state[0] ^= self.state[3];
+
+        self.state[2] ^= t;
+        self.state[3] = self.state[3].rotate_left(45);
+
+        result
+    }
+
+    /// Generate f32 in [0, 1)
+    fn next_f32(&mut self) -> f32 {
+        (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    /// Generate Gaussian-distributed value using Box-Muller
+    fn next_gaussian(&mut self) -> f32 {
+        let u1 = self.next_f32().max(1e-10);
+        let u2 = self.next_f32();
+        (-2.0 * u1.ln()).sqrt() * (2.0 * PI * u2).cos()
+    }
 }

@@ -40,25 +40,27 @@ pub fn render_heatmap(
         .y_bounds([min_doppler, max_doppler])
         .background_color(colormap.background())
         .paint(|ctx| {
-            // Iterate through the Range-Doppler map and draw each point
-            // We sample the data to match the canvas resolution for performance
-            let canvas_width = area.width.saturating_sub(2) as usize * 2; // Braille: 2 dots per char width
-            let canvas_height = area.height.saturating_sub(2) as usize * 4; // Braille: 4 dots per char height
+            // Calculate canvas resolution (Braille: 2 dots wide x 4 dots tall per char)
+            let canvas_width = (area.width.saturating_sub(2) as usize * 2).max(1);
+            let canvas_height = (area.height.saturating_sub(2) as usize * 4).max(1);
 
-            // Calculate step sizes for sampling
-            let range_step = (n_range as f32 / canvas_width as f32).max(1.0);
-            let doppler_step = (n_doppler as f32 / canvas_height as f32).max(1.0);
+            // Use integer-based sampling to avoid aliasing artifacts
+            // Sample at canvas resolution, mapping each canvas pixel to data
+            for cy in 0..canvas_height {
+                // Map canvas Y to doppler index (integer division for clean sampling)
+                let d_idx = (cy * n_doppler) / canvas_height;
+                let d_idx = d_idx.min(n_doppler - 1);
+                
+                // Map doppler index to world Y coordinate
+                let y = min_doppler + (d_idx as f64 + 0.5) / n_doppler as f64 * (max_doppler - min_doppler);
 
-            // Build points for each sampled location
-            let mut r = 0.0;
-            while (r as usize) < n_range {
-                let r_idx = r as usize;
-                let x = min_range + (r_idx as f64 / n_range as f64) * (max_range - min_range);
-
-                let mut d = 0.0;
-                while (d as usize) < n_doppler {
-                    let d_idx = d as usize;
-                    let y = min_doppler + (d_idx as f64 / n_doppler as f64) * (max_doppler - min_doppler);
+                for cx in 0..canvas_width {
+                    // Map canvas X to range index
+                    let r_idx = (cx * n_range) / canvas_width;
+                    let r_idx = r_idx.min(n_range - 1);
+                    
+                    // Map range index to world X coordinate
+                    let x = min_range + (r_idx as f64 + 0.5) / n_range as f64 * (max_range - min_range);
 
                     // Get the dB value and normalize to 0-1
                     let val = rd_map[[d_idx, r_idx]];
@@ -70,10 +72,7 @@ pub fn render_heatmap(
                         coords: &[(x, y)],
                         color,
                     });
-
-                    d += doppler_step;
                 }
-                r += range_step;
             }
         });
 
