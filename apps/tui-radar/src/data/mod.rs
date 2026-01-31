@@ -19,6 +19,10 @@ pub struct DataSource {
     /// Dimensions of the output RD map
     pub n_doppler: usize,
     pub n_range: usize,
+    
+    /// Display value range (from Python's min_scale, max_scale)
+    pub min_scale: f32,
+    pub max_scale: f32,
 }
 
 impl DataSource {
@@ -73,13 +77,19 @@ impl DataSource {
 
             // Get dimensions from Python
             let dims: (usize, usize) = backend.call_method0("get_dimensions")?.extract()?;
-
             let (n_doppler, n_range) = dims;
+
+            // Get display range from Python config
+            let py_config = backend.call_method0("get_config")?;
+            let min_scale: f32 = py_config.get_item("min_scale")?.extract()?;
+            let max_scale: f32 = py_config.get_item("max_scale")?.extract()?;
 
             Ok(Self {
                 py_backend: backend.unbind(),
                 n_doppler,
                 n_range,
+                min_scale,
+                max_scale,
             })
         })
     }

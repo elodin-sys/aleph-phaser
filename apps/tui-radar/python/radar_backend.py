@@ -118,9 +118,11 @@ class RadarBackend:
         self.mti_enabled = False
         self.previous_frame = None
         
-        # Display scaling (matching Jon's defaults)
+        # Display scaling (matching Jon's imshow vmin/vmax, not clip range)
+        # Jon clips to [0, 50] but displays with vmax=8
+        # Our data typically ranges from ~0.3 to ~7.6 in log10 scale
         self.min_scale = 0
-        self.max_scale = 50
+        self.max_scale = 8
         
         # Hardware objects (initialized in _init_hardware)
         self.sdr = None
@@ -128,6 +130,8 @@ class RadarBackend:
         self.tdd = None
         self.sdr_pins = None
         self._hardware_initialized = False
+        self._last_raw_data = None
+        self._last_rx_bursts = None
         
         # Synthetic state
         self._frame_count = 0
@@ -243,11 +247,19 @@ class RadarBackend:
             self._hardware_initialized = True
             print("RadarBackend: Hardware initialized successfully")
             
+        except ImportError as e:
+            raise RuntimeError(
+                f"Hardware mode requires pyadi-iio. Import failed: {e}\n"
+                "Install with: pip install pyadi-iio\n"
+                "Or use --synthetic flag for testing without hardware."
+            ) from e
         except Exception as e:
-            print(f"RadarBackend: Hardware initialization failed: {e}")
-            print("RadarBackend: Falling back to synthetic mode")
-            self.mode = 'synthetic'
-            self._init_synthetic()
+            raise RuntimeError(
+                f"Hardware initialization failed: {e}\n"
+                f"  SDR URI: {self.sdr_uri}\n"
+                f"  Phaser URI: {self.phaser_uri}\n"
+                "Use --synthetic flag to run without hardware."
+            ) from e
 
     def _init_synthetic(self):
         """Initialize synthetic data generator state."""
@@ -313,12 +325,18 @@ class RadarBackend:
         chan2 = data[1]
         sum_data = chan1 + chan2
         
+        # Store raw data for diagnostics
+        self._last_raw_data = sum_data
+        
         # Reshape into chirps (matching Jon's get_radar_data)
         rx_bursts = np.zeros((self.num_chirps, self.good_ramp_samples), dtype=complex)
         for burst in range(self.num_chirps):
             start_index = self.start_offset_samples + burst * self.n_frame
             stop_index = start_index + self.good_ramp_samples
             rx_bursts[burst] = sum_data[start_index:stop_index]
+        
+        # Store reshaped data for diagnostics
+        self._last_rx_bursts = rx_bursts
         
         # Apply MTI filter if enabled
         if self.mti_enabled:
@@ -328,14 +346,52 @@ class RadarBackend:
         rd_map = self._process_to_rd_map(rx_bursts)
         
         return rd_map
+    
+    def get_raw_diagnostics(self) -> dict:
+        """Get raw signal diagnostics from last capture."""
+        if not hasattr(self, '_last_raw_data') or self._last_raw_data is None:
+            return None
+        
+        raw = self._last_raw_data
+        bursts = self._last_rx_bursts if hasattr(self, '_last_rx_bursts') else None
+        
+        diag = {
+            'raw_len': len(raw),
+            'raw_dtype': str(raw.dtype),
+            'raw_abs_min': float(np.abs(raw).min()),
+            'raw_abs_max': float(np.abs(raw).max()),
+            'raw_abs_mean': float(np.abs(raw).mean()),
+            'raw_power_db': float(10 * np.log10(np.mean(np.abs(raw)**2) + 1e-12)),
+        }
+        
+        if bursts is not None:
+            # FFT magnitude stats (before log)
+            fft_mag = np.abs(np.fft.fft2(bursts))
+            diag['fft_mag_min'] = float(fft_mag.min())
+            diag['fft_mag_max'] = float(fft_mag.max())
+            diag['fft_mag_mean'] = float(fft_mag.mean())
+            diag['fft_log10_min'] = float(np.log10(fft_mag.max() + 1e-12))
+            diag['fft_log10_max'] = float(np.log10(fft_mag.min() + 1e-12))
+            
+            # Check for signal vs noise
+            diag['bursts_shape'] = bursts.shape
+            diag['burst0_power_db'] = float(10 * np.log10(np.mean(np.abs(bursts[0])**2) + 1e-12))
+        
+        return diag
 
     def _get_synthetic_frame(self) -> np.ndarray:
-        """Generate a synthetic Range-Doppler frame."""
-        # Generate directly in dB domain for cleaner synthetic output
-        rd_map = np.full((self.n_doppler, self.n_range), -50.0, dtype=np.float32)
+        """Generate a synthetic Range-Doppler frame.
         
-        # Add smooth noise floor
-        noise = self._rng.standard_normal((self.n_doppler, self.n_range)).astype(np.float32) * 3.0
+        Returns values in log10 scale matching hardware output.
+        Values range from min_scale to max_scale (default 0 to 50).
+        """
+        # Use log10 scale to match hardware output (not dB!)
+        # Noise floor around 1-2 in log10 scale (10^1 to 10^2 magnitude)
+        noise_floor = 1.5
+        rd_map = np.full((self.n_doppler, self.n_range), noise_floor, dtype=np.float32)
+        
+        # Add smooth noise variation
+        noise = self._rng.standard_normal((self.n_doppler, self.n_range)).astype(np.float32) * 0.3
         rd_map += noise
         
         # Animate time
@@ -358,16 +414,16 @@ class RadarBackend:
             dist_sq = range_dist**2 + doppler_dist**2
             
             gauss = np.exp(-0.5 * dist_sq)
-            target_contribution = (target['amp_db'] + 50) * gauss
+            # Target peaks: log10 scale, so 7 = strong target (10^7 magnitude)
+            # Convert from dB-like amplitude to log10 scale
+            target_log10 = (target['amp_db'] + 70) / 10  # -20 dB -> 5.0, 0 dB -> 7.0
+            target_contribution = (target_log10 - noise_floor) * gauss
             
-            # Soft maximum combination
-            existing = rd_map + 50
-            combined = np.log(np.exp(existing) + np.exp(target_contribution))
-            rd_map = combined - 50
+            # Add target contribution
+            rd_map = np.maximum(rd_map, noise_floor + target_contribution)
         
-        # Normalize so max = 0 dB
-        max_val = np.max(rd_map)
-        rd_map = rd_map - max_val
+        # Clip to display range (matching hardware processing)
+        rd_map = np.clip(rd_map, self.min_scale, self.max_scale)
         
         self._frame_count += 1
         
@@ -404,22 +460,28 @@ class RadarBackend:
         """
         Process IQ data to Range-Doppler map using GPU.
         Matching Jon's freq_process exactly.
+        
+        Returns values in log10 scale (not dB), clipped to [min_scale, max_scale].
+        For display, use vmin=min_scale, vmax=max_scale.
         """
         data_gpu = to_gpu(rx_bursts)
         
         # 2D FFT with shift
         rx_bursts_fft = xp.fft.fftshift(xp.abs(xp.fft.fft2(data_gpu)))
         
-        # Convert to dB (using log10, matching Jon's script)
+        # Convert to log10 scale (matching Jon's script exactly - NOT dB!)
+        # Jon uses: range_doppler_data = np.log10(rx_bursts_fft).T
         range_doppler_data = xp.log10(xp.maximum(rx_bursts_fft, 1e-12))
         
-        # Transpose to (n_doppler, n_range) and clip
+        # Transpose to match display orientation
         range_doppler_data = range_doppler_data.T
+        
+        # Clip to display range (matching Jon's script)
+        # Jon uses: np.clip(range_doppler_data, min_scale, max_scale)
         range_doppler_data = xp.clip(range_doppler_data, self.min_scale, self.max_scale)
         
-        # Normalize so max = 0 dB (for consistent display)
-        max_val = xp.max(range_doppler_data)
-        range_doppler_data = range_doppler_data - max_val
+        # NOTE: Jon does NOT normalize to max - he uses absolute log10 values
+        # The TUI should use vmin=min_scale, vmax=max_scale for display
         
         if GPU_AVAILABLE:
             cp.cuda.Stream.null.synchronize()
@@ -443,6 +505,8 @@ class RadarBackend:
             'rx_gain': self.rx_gain,
             'n_doppler': self.n_doppler,
             'n_range': self.n_range,
+            'min_scale': self.min_scale,
+            'max_scale': self.max_scale,
             'gpu_available': GPU_AVAILABLE,
             'mti_enabled': self.mti_enabled,
         }
@@ -497,28 +561,123 @@ def is_gpu_available() -> bool:
 # ============================================================================
 if __name__ == "__main__":
     import argparse
+    import os
+    from datetime import datetime
     
     parser = argparse.ArgumentParser(description="Test RadarBackend")
     parser.add_argument("--mode", choices=["synthetic", "hardware"], default="synthetic")
     parser.add_argument("--frames", type=int, default=10)
+    parser.add_argument("--sdr-uri", default="ip:192.168.2.1", help="SDR URI (e.g., 'usb:' or 'ip:192.168.2.1')")
+    parser.add_argument("--phaser-uri", default="ip:192.168.4.184", help="Phaser board URI")
+    parser.add_argument("--export", type=str, help="Export frames to directory (creates .npy files)")
+    parser.add_argument("--delay", type=float, default=0.0, help="Delay between frames in seconds")
     args = parser.parse_args()
     
     print(f"Testing RadarBackend in {args.mode} mode...")
+    print(f"  SDR URI: {args.sdr_uri}")
+    print(f"  Phaser URI: {args.phaser_uri}")
     
-    backend = create_backend(mode=args.mode)
+    backend = create_backend(mode=args.mode, sdr_uri=args.sdr_uri, phaser_uri=args.phaser_uri)
     config = backend.get_config()
     print(f"Config: {config}")
     
+    # Setup export directory if requested
+    export_dir = None
+    if args.export:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_dir = os.path.join(args.export, f"capture_{timestamp}")
+        os.makedirs(export_dir, exist_ok=True)
+        print(f"Exporting frames to: {export_dir}")
+        # Save config
+        import json
+        with open(os.path.join(export_dir, "config.json"), "w") as f:
+            json.dump(config, f, indent=2)
+    
     times = []
+    frames_data = []
+    raw_diagnostics = []
+    
     for i in range(args.frames):
         start = time.perf_counter()
         frame = backend.get_frame()
         elapsed = time.perf_counter() - start
         times.append(elapsed)
-        print(f"Frame {i+1}: shape={frame.shape}, min={frame.min():.1f} dB, max={frame.max():.1f} dB, time={elapsed*1000:.1f} ms")
+        
+        # Get raw diagnostics for hardware mode
+        if args.mode == 'hardware':
+            diag = backend.get_raw_diagnostics()
+            if diag and i == 0:  # Print detailed diagnostics for first frame
+                print(f"\n--- Raw Signal Diagnostics (Frame 0) ---")
+                print(f"  Raw buffer length: {diag['raw_len']} samples")
+                print(f"  Raw |signal| range: {diag['raw_abs_min']:.2e} to {diag['raw_abs_max']:.2e}")
+                print(f"  Raw |signal| mean: {diag['raw_abs_mean']:.2e}")
+                print(f"  Raw power: {diag['raw_power_db']:.1f} dB")
+                if 'fft_mag_max' in diag:
+                    print(f"  FFT magnitude range: {diag['fft_mag_min']:.2e} to {diag['fft_mag_max']:.2e}")
+                    print(f"  FFT log10 range: {diag['fft_log10_max']:.2f} to {diag['fft_log10_min']:.2f}")
+                    print(f"  Burst 0 power: {diag['burst0_power_db']:.1f} dB")
+                print("")
+            raw_diagnostics.append(diag)
+        
+        # Calculate some statistics to check if data is changing
+        frame_stats = {
+            "min": float(frame.min()),
+            "max": float(frame.max()),
+            "mean": float(frame.mean()),
+            "std": float(frame.std()),
+        }
+        
+        print(f"Frame {i+1}: shape={frame.shape}, min={frame_stats['min']:.1f} dB, max={frame_stats['max']:.1f} dB, "
+              f"mean={frame_stats['mean']:.1f} dB, std={frame_stats['std']:.2f}, time={elapsed*1000:.1f} ms")
+        
+        if export_dir:
+            # Save individual frame
+            np.save(os.path.join(export_dir, f"frame_{i:04d}.npy"), frame)
+            frames_data.append(frame_stats)
+        
+        if args.delay > 0:
+            time.sleep(args.delay)
     
     avg_time = np.mean(times) * 1000
     fps = 1000 / avg_time
     print(f"\nAverage: {avg_time:.1f} ms ({fps:.1f} FPS)")
+    
+    if export_dir and frames_data:
+        # Analyze frame-to-frame variation
+        stds = [f["std"] for f in frames_data]
+        means = [f["mean"] for f in frames_data]
+        print(f"\nFrame variation analysis:")
+        print(f"  Mean of means: {np.mean(means):.2f} dB")
+        print(f"  Std of means: {np.std(means):.4f} dB (higher = more variation between frames)")
+        print(f"  Mean of stds: {np.mean(stds):.2f} (higher = more variation within frames)")
+        
+        # Save summary
+        import json
+        summary = {
+            "frames": frames_data,
+            "timing_ms": times,
+            "avg_fps": fps,
+            "mean_of_means": float(np.mean(means)),
+            "std_of_means": float(np.std(means)),
+        }
+        
+        # Add raw diagnostics if available
+        if raw_diagnostics and raw_diagnostics[0]:
+            # Convert numpy types in diagnostics for JSON serialization
+            clean_diag = []
+            for d in raw_diagnostics:
+                if d:
+                    cd = {}
+                    for k, v in d.items():
+                        if isinstance(v, tuple):
+                            cd[k] = list(v)
+                        else:
+                            cd[k] = v
+                    clean_diag.append(cd)
+            summary["raw_diagnostics"] = clean_diag
+        
+        with open(os.path.join(export_dir, "summary.json"), "w") as f:
+            json.dump(summary, f, indent=2)
+        print(f"\nData saved to: {export_dir}")
     
     backend.shutdown()

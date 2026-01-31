@@ -115,15 +115,18 @@ fn main() -> Result<()> {
     }
     eprintln!();
 
-    // Setup terminal
+    // Initialize app (Python backend) BEFORE entering raw mode
+    // This way hardware errors are shown cleanly without breaking the terminal
+    let mut app = App::new(config)?;
+
+    // Setup terminal (only after app is successfully initialized)
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create and run app
-    let mut app = App::new(config)?;
+    // Run the app
     let result = run_app(&mut terminal, &mut app);
 
     // Restore terminal

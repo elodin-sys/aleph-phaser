@@ -41,9 +41,18 @@
         overlays = [ rust-overlay.overlays.default ];
       };
       
-      # Python with numpy for radar backend
+      # Build our custom Python packages for this system
+      pylibiio = pkgs.callPackage ./nix/pkgs/pylibiio.nix {};
+      pyadi-iio = pkgs.callPackage ./nix/pkgs/pyadi-iio.nix {
+        inherit pylibiio;
+      };
+      
+      # Python with all radar dependencies
       pythonEnv = pkgs.python312.withPackages (ps: [
         ps.numpy
+        ps.paramiko
+        pylibiio
+        pyadi-iio
       ]);
       
       # Rust toolchain
@@ -56,12 +65,16 @@
           pythonEnv
           rustToolchain
           pkgs.pkg-config
+          pkgs.libiio  # Provides iio_info, iio_attr, etc.
         ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
           pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
         ];
         
         env = {
+          # Build-time: tell PyO3 which Python to use
           PYO3_PYTHON = "${pythonEnv}/bin/python3";
+          # Runtime: tell embedded Python where to find stdlib and packages
+          PYTHONHOME = "${pythonEnv}";
         };
         
         shellHook = ''
@@ -71,6 +84,7 @@
           echo ""
           echo "Build: cargo build --release"
           echo "Run:   ./target/release/tui-radar --synthetic"
+          echo "       ./target/release/tui-radar --sdr-uri ip:X.X.X.X --phaser-uri ip:X.X.X.X"
         '';
       };
     });

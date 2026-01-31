@@ -68,18 +68,19 @@ pub fn render_spectrum(
                 }
             }
 
-            // Draw horizontal grid lines
+            // Draw horizontal grid lines (evenly spaced within the scale range)
             let grid_color = Color::Rgb(60, 60, 60);
-            for db in [-60, -40, -20, 0].iter() {
-                if (*db as f32) >= min_db && (*db as f32) <= max_db {
-                    ctx.draw(&CanvasLine {
-                        x1: x_min,
-                        y1: *db as f64,
-                        x2: x_max,
-                        y2: *db as f64,
-                        color: grid_color,
-                    });
-                }
+            let range = max_db - min_db;
+            let step = range / 4.0;
+            for i in 0..=4 {
+                let level = min_db + step * i as f32;
+                ctx.draw(&CanvasLine {
+                    x1: x_min,
+                    y1: level as f64,
+                    x2: x_max,
+                    y2: level as f64,
+                    color: grid_color,
+                });
             }
         });
 

@@ -3,12 +3,16 @@
 , fetchPypi
 , libiio
 , pkg-config
+, stdenv
 }:
 
 let
   # libiio in nixpkgs 25.05 has split outputs
   # The library files are in the 'lib' output, not the default output
   libiioLib = lib.getLib libiio;
+  
+  # Library extension differs by platform
+  libExt = if stdenv.isDarwin then "dylib" else "so";
 in
 python3.pkgs.buildPythonPackage rec {
   pname = "pylibiio";
@@ -33,11 +37,12 @@ python3.pkgs.buildPythonPackage rec {
     export CFLAGS="-I${libiio.dev or libiio}/include"
     export LDFLAGS="-L${libiioLib}/lib"
     export LD_LIBRARY_PATH="${libiioLib}/lib:$LD_LIBRARY_PATH"
+    export DYLD_LIBRARY_PATH="${libiioLib}/lib:$DYLD_LIBRARY_PATH"
     export LIBRARY_PATH="${libiioLib}/lib:$LIBRARY_PATH"
     
     # Patch setup.py to remove the library check - we're providing it via Nix
     # The check is in the custom install command
-    sed -i 's/self\._check_libiio_installed()/pass/' setup.py
+    sed -i.bak 's/self\._check_libiio_installed()/pass/' setup.py
   '';
   
   # Ensure libiio library can be found at runtime
@@ -46,9 +51,9 @@ python3.pkgs.buildPythonPackage rec {
     echo "Looking for libiio in: ${libiioLib}/lib"
     ls -la ${libiioLib}/lib/ || echo "lib dir not found"
     
-    # Find the actual libiio library file
+    # Find the actual libiio library file (handle both .so and .dylib)
     LIBIIO_LIB=""
-    for f in ${libiioLib}/lib/libiio.so.0 ${libiioLib}/lib/libiio.so ${libiioLib}/lib/libiio.so.*; do
+    for f in ${libiioLib}/lib/libiio.${libExt}* ${libiioLib}/lib/libiio.so* ${libiioLib}/lib/libiio.dylib*; do
       if [ -f "$f" ]; then
         LIBIIO_LIB="$f"
         break
@@ -56,11 +61,10 @@ python3.pkgs.buildPythonPackage rec {
     done
     
     if [ -z "$LIBIIO_LIB" ]; then
-      echo "ERROR: Could not find libiio.so in ${libiioLib}/lib"
       echo "Checking other locations..."
       
       # Try the out output
-      for f in ${libiio.out or libiio}/lib/libiio.so.0 ${libiio.out or libiio}/lib/libiio.so; do
+      for f in ${libiio.out or libiio}/lib/libiio.${libExt}* ${libiio.out or libiio}/lib/libiio.so* ${libiio.out or libiio}/lib/libiio.dylib*; do
         if [ -f "$f" ]; then
           LIBIIO_LIB="$f"
           echo "Found in out: $LIBIIO_LIB"
@@ -70,7 +74,7 @@ python3.pkgs.buildPythonPackage rec {
     fi
     
     if [ -z "$LIBIIO_LIB" ]; then
-      echo "ERROR: Could not find libiio.so anywhere"
+      echo "ERROR: Could not find libiio library anywhere"
       exit 1
     fi
     
@@ -111,6 +115,6 @@ python3.pkgs.buildPythonPackage rec {
     homepage = "https://github.com/analogdevicesinc/libiio";
     license = licenses.lgpl21Plus;
     maintainers = [ ];
-    platforms = platforms.linux;
+    platforms = platforms.linux ++ platforms.darwin;
   };
 }

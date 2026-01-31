@@ -53,9 +53,11 @@ impl App {
         // Create data source (Python backend)
         let data_source = DataSource::new(&config)?;
 
-        // Get actual dimensions from the backend
+        // Get actual dimensions and display range from the backend
         let n_doppler = data_source.n_doppler;
         let n_range = data_source.n_range;
+        let min_db = data_source.min_scale;
+        let max_db = data_source.max_scale;
 
         // Initialize empty arrays with correct dimensions
         let rd_map = Array2::zeros((n_doppler, n_range));
@@ -72,8 +74,8 @@ impl App {
             doppler_spectrum,
             colormap: Colormap::Inferno,
             gain_db: 0.0,
-            min_db: -60.0,
-            max_db: 0.0,
+            min_db,
+            max_db,
             mti_enabled: false,
             paused: false,
             frame_count: 0,
@@ -140,14 +142,17 @@ impl App {
         self.paused = !self.paused;
     }
 
-    /// Increase display gain
+    /// Increase display gain (shift display window up)
     pub fn increase_gain(&mut self) {
-        self.gain_db = (self.gain_db + 5.0).min(60.0);
+        // Gain shifts the display window; max shift is limited by scale range
+        let range = self.max_db - self.min_db;
+        self.gain_db = (self.gain_db + range * 0.1).min(range);
     }
 
-    /// Decrease display gain
+    /// Decrease display gain (shift display window down)
     pub fn decrease_gain(&mut self) {
-        self.gain_db = (self.gain_db - 5.0).max(-60.0);
+        let range = self.max_db - self.min_db;
+        self.gain_db = (self.gain_db - range * 0.1).max(-range);
     }
 
     /// Cycle through colormaps

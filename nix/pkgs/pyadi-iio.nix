@@ -41,6 +41,6 @@ python3.pkgs.buildPythonPackage rec {
     homepage = "https://github.com/analogdevicesinc/pyadi-iio";
     license = licenses.bsd3;
     maintainers = [ ];
-    platforms = platforms.linux;
+    platforms = platforms.linux ++ platforms.darwin;
   };
 }
