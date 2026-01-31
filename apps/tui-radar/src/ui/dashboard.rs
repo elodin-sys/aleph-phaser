@@ -113,6 +113,7 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
         "HARDWARE"
     };
     let mti = if app.mti_enabled { "ON" } else { "OFF" };
+    let auto = if app.auto_scale { "AUTO" } else { "FIXED" };
 
     // Status indicator colors
     let mode_color = if app.is_synthetic {
@@ -120,14 +121,17 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         Color::Green
     };
+    let auto_color = if app.auto_scale {
+        Color::Cyan
+    } else {
+        Color::White
+    };
 
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             " GPU RANGE-DOPPLER RADAR ",
             Style::default().fg(Color::Cyan).bold(),
         ),
-        Span::raw("│"),
-        Span::styled(" Aleph/Orin NX ", Style::default().fg(Color::Yellow)),
         Span::raw("│"),
         Span::styled(
             format!(" FPS: {:.1} ", app.fps),
@@ -143,9 +147,11 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw("│"),
         Span::styled(format!(" MTI: {} ", mti), Style::default().fg(Color::White)),
         Span::raw("│"),
+        Span::styled(format!(" Scale: {} ", auto), Style::default().fg(auto_color)),
+        Span::raw("│"),
         Span::styled(
-            format!(" {} chirps × {} samples ", app.n_doppler, app.n_range),
-            Style::default().fg(Color::White),
+            format!(" Range: {:.1}-{:.1} ", app.display_min_db(), app.display_max_db()),
+            Style::default().fg(Color::Yellow),
         ),
     ]))
     .block(Block::default().borders(Borders::ALL));
@@ -205,12 +211,14 @@ fn draw_controls_bar(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw("uit "),
         Span::styled(" [P]", Style::default().fg(Color::Yellow)),
         Span::raw("ause "),
+        Span::styled(" [A]", Style::default().fg(Color::Yellow)),
+        Span::raw("uto-scale "),
         Span::styled(" [+/-]", Style::default().fg(Color::Yellow)),
         Span::raw("Gain "),
         Span::styled(" [C]", Style::default().fg(Color::Yellow)),
         Span::raw("olormap "),
         Span::styled(" [M]", Style::default().fg(Color::Yellow)),
-        Span::raw("TI Filter "),
+        Span::raw("TI "),
         Span::styled(" [R]", Style::default().fg(Color::Yellow)),
         Span::raw("eset "),
         Span::raw("│"),

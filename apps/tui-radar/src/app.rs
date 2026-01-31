@@ -24,10 +24,16 @@ pub struct App {
     pub colormap: Colormap,
     /// Display gain adjustment (dB)
     pub gain_db: f32,
-    /// Minimum display value (dB)
+    /// Minimum display value (dB) - base scale from Python
     pub min_db: f32,
-    /// Maximum display value (dB)
+    /// Maximum display value (dB) - base scale from Python
     pub max_db: f32,
+    /// Auto-scale mode (like thermal camera)
+    pub auto_scale: bool,
+    /// Current auto-scaled min (smoothed)
+    auto_min: f32,
+    /// Current auto-scaled max (smoothed)
+    auto_max: f32,
     /// MTI (Moving Target Indicator) filter enabled
     pub mti_enabled: bool,
     /// Paused state
@@ -76,6 +82,9 @@ impl App {
             gain_db: 0.0,
             min_db,
             max_db,
+            auto_scale: true,  // Enable auto-scale by default
+            auto_min: min_db,
+            auto_max: max_db,
             mti_enabled: false,
             paused: false,
             frame_count: 0,
@@ -97,6 +106,11 @@ impl App {
 
         self.frame_time_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
 
+        // Update auto-scale bounds if enabled
+        if self.auto_scale {
+            self.update_auto_scale();
+        }
+
         // Compute 1D spectra for side displays
         self.compute_spectra();
 
@@ -110,6 +124,39 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Update auto-scale bounds based on current frame
+    fn update_auto_scale(&mut self) {
+        // Find current frame min/max
+        let mut frame_min = f32::INFINITY;
+        let mut frame_max = f32::NEG_INFINITY;
+        
+        for &val in self.rd_map.iter() {
+            if val < frame_min {
+                frame_min = val;
+            }
+            if val > frame_max {
+                frame_max = val;
+            }
+        }
+        
+        // Ensure we have a valid range
+        if frame_max <= frame_min {
+            frame_max = frame_min + 1.0;
+        }
+        
+        // Add a small margin (5%) for visual comfort
+        let range = frame_max - frame_min;
+        let margin = range * 0.05;
+        frame_min -= margin;
+        frame_max += margin;
+        
+        // Smooth the transition (exponential moving average)
+        // Higher alpha = faster response, lower alpha = smoother
+        let alpha = 0.3;
+        self.auto_min = self.auto_min * (1.0 - alpha) + frame_min * alpha;
+        self.auto_max = self.auto_max * (1.0 - alpha) + frame_max * alpha;
     }
 
     /// Compute 1D spectra from the Range-Doppler map
@@ -172,22 +219,41 @@ impl App {
         let _ = self.data_source.set_mti(self.mti_enabled);
     }
 
+    /// Toggle auto-scale mode
+    pub fn toggle_auto_scale(&mut self) {
+        self.auto_scale = !self.auto_scale;
+        if self.auto_scale {
+            // Reset auto bounds to current frame when re-enabling
+            self.auto_min = self.min_db;
+            self.auto_max = self.max_db;
+        }
+    }
+
     /// Reset to default state
     pub fn reset(&mut self) {
         self.gain_db = 0.0;
         self.mti_enabled = false;
+        self.auto_scale = true;
         let _ = self.data_source.set_mti(false);
         self.colormap = Colormap::Inferno;
     }
 
-    /// Get effective min dB for display
+    /// Get effective min value for display
     pub fn display_min_db(&self) -> f32 {
-        self.min_db - self.gain_db
+        if self.auto_scale {
+            self.auto_min
+        } else {
+            self.min_db - self.gain_db
+        }
     }
 
-    /// Get effective max dB for display
+    /// Get effective max value for display
     pub fn display_max_db(&self) -> f32 {
-        self.max_db - self.gain_db
+        if self.auto_scale {
+            self.auto_max
+        } else {
+            self.max_db - self.gain_db
+        }
     }
 }
 

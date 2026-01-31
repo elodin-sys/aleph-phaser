@@ -165,6 +165,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                         KeyCode::Char('-') => app.decrease_gain(),
                         KeyCode::Char('c') => app.cycle_colormap(),
                         KeyCode::Char('m') => app.toggle_mti(),
+                        KeyCode::Char('a') => app.toggle_auto_scale(),
                         KeyCode::Char('r') => app.reset(),
                         _ => {}
                     }
