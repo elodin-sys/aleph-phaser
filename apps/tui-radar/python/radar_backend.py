@@ -72,6 +72,7 @@ class RadarBackend:
         output_freq: int = 9_900_000_000,
         rx_gain: int = 30,
         signal_freq: float = 100_000,
+        max_range: float = 10.0,
     ):
         """
         Initialize the radar backend.
@@ -88,6 +89,7 @@ class RadarBackend:
             output_freq: Phaser output frequency in Hz
             rx_gain: Receive gain in dB
             signal_freq: Signal/IF frequency in Hz
+            max_range: Maximum display range in meters
         """
         self.mode = mode
         self.sdr_uri = sdr_uri
@@ -102,6 +104,7 @@ class RadarBackend:
         self.output_freq = output_freq
         self.rx_gain = rx_gain
         self.signal_freq = signal_freq
+        self.max_range = max_range
         
         # Calculate derived parameters (matching Jon's script exactly)
         self.ramp_time_s = ramp_time_us / 1e6
@@ -110,9 +113,28 @@ class RadarBackend:
         self.pri_ms = ramp_time_us / 1000 + 0.2
         self.n_frame = int(self.pri_ms / 1000 * sample_rate)
         
-        # Output dimensions
+        # Calculate FMCW range axis (matching Jon's script)
+        # freq = linspace(-sample_rate/2, sample_rate/2, n_samples)
+        # dist = (freq - signal_freq) * c / (2 * slope)
+        c = 3e8  # speed of light
+        slope = chirp_bw / self.ramp_time_s
+        freq_axis = np.fft.fftshift(np.fft.fftfreq(self.good_ramp_samples, 1/sample_rate))
+        self.range_axis = (freq_axis - signal_freq) * c / (2 * slope)
+        
+        # Find indices for 0m to max_range (the displayable region)
+        self.range_start_idx = int(np.argmin(np.abs(self.range_axis - 0)))
+        self.range_end_idx = int(np.argmin(np.abs(self.range_axis - max_range)))
+        
+        # Ensure we have at least some range bins
+        if self.range_end_idx <= self.range_start_idx:
+            self.range_end_idx = self.range_start_idx + 50  # fallback
+        
+        # Output dimensions (sliced to displayable range)
         self.n_doppler = num_chirps
-        self.n_range = self.good_ramp_samples
+        self.n_range_full = self.good_ramp_samples  # full FFT size
+        self.n_range = self.range_end_idx - self.range_start_idx  # displayed range bins
+        
+        print(f"Range axis: full={self.n_range_full} bins, display={self.n_range} bins (idx {self.range_start_idx}-{self.range_end_idx})")
         
         # MTI filter state
         self.mti_enabled = False
@@ -265,7 +287,18 @@ class RadarBackend:
         """Initialize synthetic data generator state."""
         self._frame_count = 0
         
-        # Create interesting simulated targets
+        # Test pattern mode (None = use animated targets)
+        # Valid patterns: 'animated', 'corner_dots', 'gradient_h', 'gradient_v', 
+        #                 'center_target', 'grid', 'diagonal', 'checkerboard'
+        self._test_pattern = 'animated'
+        
+        # Available patterns for cycling
+        self._available_patterns = [
+            'animated', 'corner_dots', 'gradient_h', 'gradient_v',
+            'center_target', 'grid', 'diagonal', 'checkerboard'
+        ]
+        
+        # Create interesting simulated targets for 'animated' pattern
         # Each target: (range_frac, doppler_frac, amplitude_db, velocity, range_sigma, doppler_sigma)
         self._synthetic_targets = [
             # Stationary target at mid-range (like a building)
@@ -295,6 +328,34 @@ class RadarBackend:
         self.mti_enabled = enabled
         if not enabled:
             self.previous_frame = None
+
+    def set_test_pattern(self, pattern: str):
+        """Set the test pattern for synthetic mode.
+        
+        Args:
+            pattern: One of 'animated', 'corner_dots', 'gradient_h', 'gradient_v',
+                    'center_target', 'grid', 'diagonal', 'checkerboard'
+        """
+        if pattern not in self._available_patterns:
+            raise ValueError(f"Unknown pattern '{pattern}'. Available: {self._available_patterns}")
+        self._test_pattern = pattern
+        print(f"RadarBackend: Test pattern set to '{pattern}'")
+
+    def get_test_pattern(self) -> str:
+        """Get the current test pattern name."""
+        return self._test_pattern
+
+    def get_available_patterns(self) -> list:
+        """Get list of available test patterns."""
+        return self._available_patterns.copy()
+
+    def cycle_test_pattern(self) -> str:
+        """Cycle to the next test pattern and return its name."""
+        current_idx = self._available_patterns.index(self._test_pattern)
+        next_idx = (current_idx + 1) % len(self._available_patterns)
+        self._test_pattern = self._available_patterns[next_idx]
+        print(f"RadarBackend: Test pattern cycled to '{self._test_pattern}'")
+        return self._test_pattern
 
     def get_frame(self) -> np.ndarray:
         """
@@ -383,8 +444,17 @@ class RadarBackend:
         """Generate a synthetic Range-Doppler frame.
         
         Returns values in log10 scale matching hardware output.
-        Values range from min_scale to max_scale (default 0 to 50).
+        Values range from min_scale to max_scale (default 0 to 8).
+        
+        If a test pattern is set, generates that pattern instead of animated targets.
         """
+        if self._test_pattern != 'animated':
+            return self._get_test_pattern_frame()
+        
+        return self._get_animated_frame()
+
+    def _get_animated_frame(self) -> np.ndarray:
+        """Generate an animated frame with moving targets."""
         # Use log10 scale to match hardware output (not dB!)
         # Noise floor around 1-2 in log10 scale (10^1 to 10^2 magnitude)
         noise_floor = 1.5
@@ -429,6 +499,165 @@ class RadarBackend:
         
         return rd_map.astype(np.float32)
 
+    def _get_test_pattern_frame(self) -> np.ndarray:
+        """Generate a test pattern frame for visual validation.
+        
+        Test patterns are designed to verify:
+        - Coordinate mapping (which corner is which)
+        - Axis orientation (range vs doppler)
+        - Color mapping (min to max scale)
+        - Interpolation behavior
+        
+        Coordinate system:
+        - rd_map[d, r] where d=Doppler index, r=Range index
+        - d=0 is bottom (negative max Doppler), d=n_doppler-1 is top (positive max Doppler)
+        - r=0 is left (0 meters), r=n_range-1 is right (max_range meters)
+        
+        NOTE: The aspect ratio can be extreme (e.g., 512x30 = 17:1). Patterns are
+        designed to be visible even with this aspect ratio by using appropriately
+        sized features in each dimension independently.
+        """
+        rd_map = np.full((self.n_doppler, self.n_range), self.min_scale, dtype=np.float32)
+        
+        if self._test_pattern == 'corner_dots':
+            # Place bright regions at corners with different intensities
+            # This helps verify coordinate orientation
+            # Use independent radii for each axis to handle extreme aspect ratios
+            # Radius should be ~15% of each dimension to be clearly visible
+            radius_d = max(20, self.n_doppler // 7)  # ~15% of Doppler height
+            radius_r = max(4, self.n_range // 7)     # ~15% of Range width
+            
+            corners = [
+                # (d_idx, r_idx, intensity_fraction, label)
+                (0, 0, 1.0, "bottom-left"),           # d=0, r=0: bottom-left (brightest)
+                (0, self.n_range-1, 0.75, "bottom-right"),  # d=0, r=max: bottom-right
+                (self.n_doppler-1, 0, 0.5, "top-left"),     # d=max, r=0: top-left
+                (self.n_doppler-1, self.n_range-1, 0.35, "top-right"),  # d=max, r=max: top-right (dimmest but visible)
+            ]
+            
+            for d_center, r_center, intensity, label in corners:
+                # Create an elliptical dot with different radii for each axis
+                for dd in range(-radius_d, radius_d+1):
+                    for dr in range(-radius_r, radius_r+1):
+                        d = d_center + dd
+                        r = r_center + dr
+                        if 0 <= d < self.n_doppler and 0 <= r < self.n_range:
+                            # Normalized distance for ellipse
+                            dist_norm = np.sqrt((dd / radius_d)**2 + (dr / radius_r)**2)
+                            if dist_norm <= 1.0:
+                                # Gaussian falloff (less aggressive for better visibility)
+                                val = intensity * np.exp(-1.5 * dist_norm**2)
+                                rd_map[d, r] = max(rd_map[d, r], 
+                                    self.min_scale + val * (self.max_scale - self.min_scale))
+        
+        elif self._test_pattern == 'gradient_h':
+            # Horizontal gradient: left (r=0) is min, right (r=max) is max
+            # This validates the Range axis (horizontal)
+            for r in range(self.n_range):
+                val = self.min_scale + (r / max(1, self.n_range - 1)) * (self.max_scale - self.min_scale)
+                rd_map[:, r] = val
+        
+        elif self._test_pattern == 'gradient_v':
+            # Vertical gradient: bottom (d=0) is min, top (d=max) is max
+            # This validates the Doppler axis (vertical)
+            for d in range(self.n_doppler):
+                val = self.min_scale + (d / max(1, self.n_doppler - 1)) * (self.max_scale - self.min_scale)
+                rd_map[d, :] = val
+        
+        elif self._test_pattern == 'center_target':
+            # Single bright Gaussian blob at the center
+            # This validates basic target rendering
+            # Use different sigmas for each axis to maintain visibility
+            cx = self.n_range // 2
+            cy = self.n_doppler // 2
+            sigma_r = max(2, self.n_range // 6)
+            sigma_d = max(10, self.n_doppler // 6)
+            
+            r_idx = np.arange(self.n_range)
+            d_idx = np.arange(self.n_doppler)
+            R, D = np.meshgrid(r_idx, d_idx)
+            
+            dist_sq = ((R - cx) / sigma_r)**2 + ((D - cy) / sigma_d)**2
+            gauss = np.exp(-0.5 * dist_sq)
+            
+            rd_map = self.min_scale + gauss * (self.max_scale - self.min_scale)
+        
+        elif self._test_pattern == 'grid':
+            # Regular grid pattern - helps verify scaling and spacing
+            # Use 5 lines in each direction for visibility with extreme aspect ratios
+            n_lines = 5
+            
+            # Vertical lines (constant range) - thick enough to be visible
+            line_width_r = max(1, self.n_range // 20)
+            line_spacing_r = max(1, self.n_range // n_lines)
+            for i in range(n_lines + 1):
+                r_center = min(i * line_spacing_r, self.n_range - 1)
+                for dr in range(-line_width_r, line_width_r + 1):
+                    rr = r_center + dr
+                    if 0 <= rr < self.n_range:
+                        rd_map[:, rr] = np.maximum(rd_map[:, rr], self.max_scale * 0.7)
+            
+            # Horizontal lines (constant Doppler) - thick enough to be visible
+            line_width_d = max(5, self.n_doppler // 50)  # Thicker to account for aspect ratio
+            line_spacing_d = max(1, self.n_doppler // n_lines)
+            for i in range(n_lines + 1):
+                d_center = min(i * line_spacing_d, self.n_doppler - 1)
+                for dd in range(-line_width_d, line_width_d + 1):
+                    dd_idx = d_center + dd
+                    if 0 <= dd_idx < self.n_doppler:
+                        rd_map[dd_idx, :] = np.maximum(rd_map[dd_idx, :], self.max_scale * 0.7)
+            
+            # Make intersections brighter with larger markers
+            for i in range(n_lines + 1):
+                for j in range(n_lines + 1):
+                    r_center = min(i * line_spacing_r, self.n_range - 1)
+                    d_center = min(j * line_spacing_d, self.n_doppler - 1)
+                    for dr in range(-line_width_r*2, line_width_r*2 + 1):
+                        for dd in range(-line_width_d*2, line_width_d*2 + 1):
+                            rr = r_center + dr
+                            dd_idx = d_center + dd
+                            if 0 <= rr < self.n_range and 0 <= dd_idx < self.n_doppler:
+                                rd_map[dd_idx, rr] = self.max_scale
+        
+        elif self._test_pattern == 'diagonal':
+            # Diagonal line from bottom-left to top-right
+            # This validates that both axes are correctly oriented
+            # Use different line widths for each axis
+            line_width_r = max(2, self.n_range // 15)
+            line_width_d = max(10, self.n_doppler // 30)
+            
+            # Step through the larger dimension
+            steps = max(self.n_range, self.n_doppler)
+            for i in range(steps):
+                r = int(i * (self.n_range - 1) / max(1, steps - 1))
+                d = int(i * (self.n_doppler - 1) / max(1, steps - 1))
+                
+                for dr in range(-line_width_r, line_width_r + 1):
+                    for dd in range(-line_width_d, line_width_d + 1):
+                        rr = r + dr
+                        dd_idx = d + dd
+                        if 0 <= rr < self.n_range and 0 <= dd_idx < self.n_doppler:
+                            rd_map[dd_idx, rr] = self.max_scale
+        
+        elif self._test_pattern == 'checkerboard':
+            # Checkerboard pattern - helps identify any axis flipping
+            # Use 4x4 pattern for better visibility with extreme aspect ratios
+            cells_r = 4
+            cells_d = 4
+            cell_width = max(1, self.n_range // cells_r)
+            cell_height = max(1, self.n_doppler // cells_d)
+            
+            for d in range(self.n_doppler):
+                for r in range(self.n_range):
+                    cell_r = r // cell_width
+                    cell_d = d // cell_height
+                    if (cell_r + cell_d) % 2 == 0:
+                        rd_map[d, r] = self.max_scale
+                    else:
+                        rd_map[d, r] = self.min_scale
+        
+        return rd_map.astype(np.float32)
+
     def _apply_mti(self, rx_bursts: np.ndarray) -> np.ndarray:
         """
         Apply phase-corrected 2-pulse canceller MTI filter.
@@ -462,26 +691,27 @@ class RadarBackend:
         Matching Jon's freq_process exactly.
         
         Returns values in log10 scale (not dB), clipped to [min_scale, max_scale].
+        Shape: (n_doppler, n_range) - rows are Doppler bins, columns are Range bins.
+        The range axis is sliced to only include 0 to max_range meters.
         For display, use vmin=min_scale, vmax=max_scale.
         """
         data_gpu = to_gpu(rx_bursts)
         
         # 2D FFT with shift
+        # Input: (num_chirps, good_ramp_samples) = (n_doppler, n_range_full)
+        # Output after fft2: (n_doppler, n_range_full) - Doppler along rows, Range along columns
+        # fftshift centers DC in both dimensions
         rx_bursts_fft = xp.fft.fftshift(xp.abs(xp.fft.fft2(data_gpu)))
         
         # Convert to log10 scale (matching Jon's script exactly - NOT dB!)
-        # Jon uses: range_doppler_data = np.log10(rx_bursts_fft).T
         range_doppler_data = xp.log10(xp.maximum(rx_bursts_fft, 1e-12))
         
-        # Transpose to match display orientation
-        range_doppler_data = range_doppler_data.T
+        # Slice to only include the displayable range (0 to max_range meters)
+        # This is equivalent to Jon's ax.set_ylim([0, max_range])
+        range_doppler_data = range_doppler_data[:, self.range_start_idx:self.range_end_idx]
         
         # Clip to display range (matching Jon's script)
-        # Jon uses: np.clip(range_doppler_data, min_scale, max_scale)
         range_doppler_data = xp.clip(range_doppler_data, self.min_scale, self.max_scale)
-        
-        # NOTE: Jon does NOT normalize to max - he uses absolute log10 values
-        # The TUI should use vmin=min_scale, vmax=max_scale for display
         
         if GPU_AVAILABLE:
             cp.cuda.Stream.null.synchronize()
@@ -494,7 +724,7 @@ class RadarBackend:
 
     def get_config(self) -> Dict:
         """Return current configuration as dictionary."""
-        return {
+        config = {
             'mode': self.mode,
             'sample_rate': self.sample_rate,
             'num_chirps': self.num_chirps,
@@ -510,6 +740,57 @@ class RadarBackend:
             'gpu_available': GPU_AVAILABLE,
             'mti_enabled': self.mti_enabled,
         }
+        # Add pattern info for synthetic mode
+        if self.mode == 'synthetic':
+            config['test_pattern'] = self._test_pattern
+            config['available_patterns'] = self._available_patterns
+        return config
+
+    def export_frame(self, directory: str, frame: np.ndarray = None) -> str:
+        """Export the current frame to a file for offline analysis.
+        
+        Args:
+            directory: Directory to save files to
+            frame: Optional frame to export. If None, captures a new frame.
+            
+        Returns:
+            Path to the exported .npy file
+        """
+        import os
+        import json
+        from datetime import datetime
+        
+        # Ensure directory exists
+        os.makedirs(directory, exist_ok=True)
+        
+        # Get frame if not provided
+        if frame is None:
+            frame = self.get_frame()
+        
+        # Generate timestamp for unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        
+        # Save frame as numpy array
+        frame_path = os.path.join(directory, f"frame_{timestamp}.npy")
+        np.save(frame_path, frame)
+        
+        # Save metadata
+        meta_path = os.path.join(directory, f"frame_{timestamp}_meta.json")
+        metadata = {
+            'timestamp': timestamp,
+            'shape': list(frame.shape),
+            'dtype': str(frame.dtype),
+            'min': float(frame.min()),
+            'max': float(frame.max()),
+            'mean': float(frame.mean()),
+            'std': float(frame.std()),
+            'config': self.get_config(),
+        }
+        with open(meta_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        print(f"RadarBackend: Exported frame to {frame_path}")
+        return frame_path
 
     def shutdown(self):
         """Clean up resources."""
@@ -535,9 +816,18 @@ def create_backend(
     center_freq: int = 2_100_000_000,
     output_freq: int = 9_900_000_000,
     rx_gain: int = 30,
+    max_range: float = 10.0,
+    test_pattern: str = "animated",
 ) -> RadarBackend:
-    """Factory function for creating a RadarBackend instance."""
-    return RadarBackend(
+    """Factory function for creating a RadarBackend instance.
+    
+    Args:
+        mode: 'hardware' or 'synthetic'
+        test_pattern: For synthetic mode, the test pattern to use.
+            Options: 'animated' (default), 'corner_dots', 'gradient_h', 
+            'gradient_v', 'center_target', 'grid', 'diagonal', 'checkerboard'
+    """
+    backend = RadarBackend(
         mode=mode,
         sdr_uri=sdr_uri,
         phaser_uri=phaser_uri,
@@ -548,7 +838,14 @@ def create_backend(
         center_freq=center_freq,
         output_freq=output_freq,
         rx_gain=rx_gain,
+        max_range=max_range,
     )
+    
+    # Set test pattern if in synthetic mode
+    if mode == 'synthetic' and test_pattern != 'animated':
+        backend.set_test_pattern(test_pattern)
+    
+    return backend
 
 
 def is_gpu_available() -> bool:

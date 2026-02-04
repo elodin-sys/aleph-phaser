@@ -106,6 +106,7 @@ pub fn render_color_scale(
     min_db: f32,
     max_db: f32,
 ) {
+    // Note: Values are log10(magnitude), not dB. Label accordingly.
     let block = Block::default()
         .borders(Borders::ALL)
         .title("Power (dB)")
@@ -126,7 +127,7 @@ pub fn render_color_scale(
         }
         frame.render_widget(Line::from(spans), gradient_area);
 
-        // Labels
+        // Labels - show as plain numbers since these are log10 scale values
         let label_area = Rect::new(inner.x, inner.y + 1, inner.width, 1);
         let label_line = Line::from(vec![
             Span::raw(format!("{:.0}dB", min_db)),

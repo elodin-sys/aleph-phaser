@@ -69,6 +69,8 @@ impl DataSource {
             kwargs.set_item("center_freq", config.center_freq)?;
             kwargs.set_item("output_freq", config.output_freq)?;
             kwargs.set_item("rx_gain", config.rx_gain)?;
+            kwargs.set_item("max_range", config.max_range)?;
+            kwargs.set_item("test_pattern", &config.test_pattern)?;
 
             // Create the backend
             let backend = radar_backend
@@ -128,6 +130,49 @@ impl DataSource {
                 .bind(py)
                 .call_method1("set_mti", (enabled,))?;
             Ok(())
+        })
+    }
+
+    /// Set test pattern (synthetic mode only)
+    pub fn set_test_pattern(&mut self, pattern: &str) -> Result<()> {
+        Python::with_gil(|py| {
+            self.py_backend
+                .bind(py)
+                .call_method1("set_test_pattern", (pattern,))?;
+            Ok(())
+        })
+    }
+
+    /// Cycle to next test pattern (synthetic mode only)
+    pub fn cycle_test_pattern(&mut self) -> Result<String> {
+        Python::with_gil(|py| {
+            let result = self
+                .py_backend
+                .bind(py)
+                .call_method0("cycle_test_pattern")?;
+            let pattern: String = result.extract()?;
+            Ok(pattern)
+        })
+    }
+
+    /// Get current test pattern name (synthetic mode only)
+    pub fn get_test_pattern(&self) -> Result<String> {
+        Python::with_gil(|py| {
+            let result = self.py_backend.bind(py).call_method0("get_test_pattern")?;
+            let pattern: String = result.extract()?;
+            Ok(pattern)
+        })
+    }
+
+    /// Export current frame to a file
+    pub fn export_frame(&self, directory: &str) -> Result<String> {
+        Python::with_gil(|py| {
+            let result = self
+                .py_backend
+                .bind(py)
+                .call_method1("export_frame", (directory,))?;
+            let path: String = result.extract()?;
+            Ok(path)
         })
     }
 

@@ -51,6 +51,14 @@ pub struct App {
     pub n_range: usize,
     /// Connection/mode status
     pub is_synthetic: bool,
+    /// Current test pattern (synthetic mode only)
+    pub test_pattern: String,
+    /// Debug overlay mode
+    pub debug_overlay: bool,
+    /// Last status message (for export notifications, etc.)
+    pub status_message: Option<String>,
+    /// Frame count for status message timeout
+    status_message_frames: u64,
 }
 
 impl App {
@@ -71,6 +79,7 @@ impl App {
         let doppler_spectrum = vec![0.0; n_doppler];
 
         let is_synthetic = config.synthetic;
+        let test_pattern = config.test_pattern.clone();
 
         Ok(Self {
             config,
@@ -94,6 +103,10 @@ impl App {
             n_doppler,
             n_range,
             is_synthetic,
+            test_pattern,
+            debug_overlay: false,
+            status_message: None,
+            status_message_frames: 0,
         })
     }
 
@@ -121,6 +134,15 @@ impl App {
             self.fps = self.frame_count as f32 / elapsed.as_secs_f32();
             self.frame_count = 0;
             self.last_fps_time = Instant::now();
+        }
+
+        // Clear status message after ~3 seconds (90 frames at 30fps)
+        if self.status_message.is_some() {
+            self.status_message_frames += 1;
+            if self.status_message_frames > 90 {
+                self.status_message = None;
+                self.status_message_frames = 0;
+            }
         }
 
         Ok(())
@@ -229,13 +251,47 @@ impl App {
         }
     }
 
+    /// Cycle through test patterns (synthetic mode only)
+    pub fn cycle_test_pattern(&mut self) {
+        if self.is_synthetic {
+            if let Ok(pattern) = self.data_source.cycle_test_pattern() {
+                self.test_pattern = pattern;
+            }
+        }
+    }
+
+    /// Toggle debug overlay
+    pub fn toggle_debug_overlay(&mut self) {
+        self.debug_overlay = !self.debug_overlay;
+    }
+
+    /// Export current frame to file
+    pub fn export_frame(&mut self) {
+        match self.data_source.export_frame("./exports") {
+            Ok(path) => {
+                self.status_message = Some(format!("Exported: {}", path));
+                self.status_message_frames = 0;
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Export failed: {}", e));
+                self.status_message_frames = 0;
+            }
+        }
+    }
+
     /// Reset to default state
     pub fn reset(&mut self) {
         self.gain_db = 0.0;
         self.mti_enabled = false;
         self.auto_scale = true;
+        self.debug_overlay = false;
         let _ = self.data_source.set_mti(false);
         self.colormap = Colormap::Inferno;
+        // Reset test pattern to animated
+        if self.is_synthetic {
+            let _ = self.data_source.set_test_pattern("animated");
+            self.test_pattern = "animated".to_string();
+        }
     }
 
     /// Get effective min value for display

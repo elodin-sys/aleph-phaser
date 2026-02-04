@@ -74,6 +74,10 @@ struct Args {
     /// Receive gain (dB)
     #[arg(long, default_value = "30")]
     rx_gain: i32,
+
+    /// Test pattern for synthetic mode (animated, corner_dots, gradient_h, gradient_v, center_target, grid, diagonal, checkerboard)
+    #[arg(long, short = 't', default_value = "animated")]
+    pattern: String,
 }
 
 fn main() -> Result<()> {
@@ -94,6 +98,7 @@ fn main() -> Result<()> {
         center_freq: 2_100_000_000,
         output_freq: 9_900_000_000,
         rx_gain: args.rx_gain,
+        test_pattern: args.pattern,
     };
 
     // Print configuration summary
@@ -106,6 +111,9 @@ fn main() -> Result<()> {
             "Hardware"
         }
     );
+    if config.synthetic {
+        eprintln!("  Test Pattern: {}", config.test_pattern);
+    }
     eprintln!("  Doppler bins (chirps): {}", config.n_doppler);
     eprintln!("  Expected range bins: {}", config.expected_n_range());
     eprintln!("  Target FPS: {}", config.target_fps);
@@ -166,6 +174,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                         KeyCode::Char('c') => app.cycle_colormap(),
                         KeyCode::Char('m') => app.toggle_mti(),
                         KeyCode::Char('a') => app.toggle_auto_scale(),
+                        KeyCode::Char('t') => app.cycle_test_pattern(),
+                        KeyCode::Char('d') => app.toggle_debug_overlay(),
+                        KeyCode::Char('e') => app.export_frame(),
                         KeyCode::Char('r') => app.reset(),
                         _ => {}
                     }

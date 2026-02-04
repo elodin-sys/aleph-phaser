@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use super::heatmap::render_heatmap;
+use super::heatmap::{render_debug_overlay, render_heatmap};
 use super::spectrum::{render_color_scale, render_spectrum};
 use crate::app::App;
 
@@ -38,7 +38,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     // Draw main Range-Doppler heatmap
     let max_doppler = app.config.max_doppler();
-    let range_bounds = (-app.config.max_range, app.config.max_range);
+    // Range is always positive (distance from radar) - 0 to max_range
+    let range_bounds = (0.0, app.config.max_range);
     let doppler_bounds = (-max_doppler, max_doppler);
 
     render_heatmap(
@@ -52,6 +53,19 @@ pub fn draw(frame: &mut Frame, app: &App) {
         doppler_bounds,
         " RANGE-DOPPLER MAP ",
     );
+
+    // Render debug overlay if enabled
+    if app.debug_overlay {
+        render_debug_overlay(
+            frame,
+            content_chunks[0],
+            &app.rd_map,
+            app.n_range,
+            app.n_doppler,
+            range_bounds,
+            doppler_bounds,
+        );
+    }
 
     // Side panels: Range spectrum, Doppler spectrum, Color scale
     let side_chunks = Layout::default()
@@ -127,7 +141,7 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
         Color::White
     };
 
-    let header = Paragraph::new(Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             " GPU RANGE-DOPPLER RADAR ",
             Style::default().fg(Color::Cyan).bold(),
@@ -144,6 +158,18 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
         ),
         Span::raw("│"),
         Span::styled(format!(" Mode: {} ", mode), Style::default().fg(mode_color)),
+    ];
+
+    // Show pattern name in synthetic mode
+    if app.is_synthetic {
+        spans.push(Span::raw("│"));
+        spans.push(Span::styled(
+            format!(" Pattern: {} ", app.test_pattern),
+            Style::default().fg(Color::LightBlue),
+        ));
+    }
+
+    spans.extend(vec![
         Span::raw("│"),
         Span::styled(format!(" MTI: {} ", mti), Style::default().fg(Color::White)),
         Span::raw("│"),
@@ -153,8 +179,10 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
             format!(" Range: {:.1}-{:.1} ", app.display_min_db(), app.display_max_db()),
             Style::default().fg(Color::Yellow),
         ),
-    ]))
-    .block(Block::default().borders(Borders::ALL));
+    ]);
+
+    let header = Paragraph::new(Line::from(spans))
+        .block(Block::default().borders(Borders::ALL));
 
     frame.render_widget(header, area);
 }
@@ -168,7 +196,7 @@ fn draw_performance_bar(frame: &mut Frame, area: Rect, app: &App) {
         1.0
     };
 
-    let perf = Paragraph::new(Line::from(vec![
+    let mut spans = vec![
         Span::styled(" PERFORMANCE ", Style::default().fg(Color::Cyan).bold()),
         Span::raw("│"),
         Span::styled(
@@ -195,8 +223,19 @@ fn draw_performance_bar(frame: &mut Frame, area: Rect, app: &App) {
             format!(" Gain: {:+.0}dB ", app.gain_db),
             Style::default().fg(Color::White),
         ),
-    ]))
-    .block(Block::default().borders(Borders::ALL));
+    ];
+
+    // Show status message if present
+    if let Some(ref msg) = app.status_message {
+        spans.push(Span::raw("│"));
+        spans.push(Span::styled(
+            format!(" {} ", msg),
+            Style::default().fg(Color::LightGreen).bold(),
+        ));
+    }
+
+    let perf = Paragraph::new(Line::from(spans))
+        .block(Block::default().borders(Borders::ALL));
 
     frame.render_widget(perf, area);
 }
@@ -205,7 +244,7 @@ fn draw_performance_bar(frame: &mut Frame, area: Rect, app: &App) {
 fn draw_controls_bar(frame: &mut Frame, area: Rect, app: &App) {
     let paused_indicator = if app.paused { " [PAUSED] " } else { "" };
 
-    let controls = Paragraph::new(Line::from(vec![
+    let mut spans = vec![
         Span::styled(paused_indicator, Style::default().fg(Color::Red).bold()),
         Span::styled(" [Q]", Style::default().fg(Color::Yellow)),
         Span::raw("uit "),
@@ -219,6 +258,19 @@ fn draw_controls_bar(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw("olormap "),
         Span::styled(" [M]", Style::default().fg(Color::Yellow)),
         Span::raw("TI "),
+    ];
+
+    // Show pattern cycling key in synthetic mode
+    if app.is_synthetic {
+        spans.push(Span::styled(" [T]", Style::default().fg(Color::Yellow)));
+        spans.push(Span::raw("est-pattern "));
+    }
+
+    spans.extend(vec![
+        Span::styled(" [D]", Style::default().fg(Color::Yellow)),
+        Span::raw("ebug "),
+        Span::styled(" [E]", Style::default().fg(Color::Yellow)),
+        Span::raw("xport "),
         Span::styled(" [R]", Style::default().fg(Color::Yellow)),
         Span::raw("eset "),
         Span::raw("│"),
@@ -236,8 +288,10 @@ fn draw_controls_bar(frame: &mut Frame, area: Rect, app: &App) {
             format!(" Max Range: {:.0}m ", app.config.max_range),
             Style::default().fg(Color::White),
         ),
-    ]))
-    .block(Block::default().borders(Borders::ALL));
+    ]);
+
+    let controls = Paragraph::new(Line::from(spans))
+        .block(Block::default().borders(Borders::ALL));
 
     frame.render_widget(controls, area);
 }

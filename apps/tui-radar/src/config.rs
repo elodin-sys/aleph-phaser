@@ -6,6 +6,18 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Available test patterns for synthetic mode
+pub const AVAILABLE_PATTERNS: &[&str] = &[
+    "animated",
+    "corner_dots",
+    "gradient_h",
+    "gradient_v",
+    "center_target",
+    "grid",
+    "diagonal",
+    "checkerboard",
+];
+
 /// Radar system configuration
 ///
 /// These parameters are passed to the Python RadarBackend which handles
@@ -36,6 +48,8 @@ pub struct RadarConfig {
     pub output_freq: u64,
     /// Receive gain (dB) - default 30
     pub rx_gain: i32,
+    /// Test pattern for synthetic mode
+    pub test_pattern: String,
 }
 
 impl Default for RadarConfig {
@@ -54,6 +68,7 @@ impl Default for RadarConfig {
             center_freq: 2_100_000_000,
             output_freq: 9_900_000_000,
             rx_gain: 30,
+            test_pattern: "animated".to_string(),
         }
     }
 }

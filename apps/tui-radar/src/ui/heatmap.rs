@@ -5,7 +5,7 @@ use ratatui::{
     prelude::*,
     widgets::{
         canvas::{Canvas, Points},
-        Block, Borders,
+        Block, Borders, Paragraph,
     },
 };
 
@@ -45,28 +45,52 @@ pub fn render_heatmap(
             let canvas_width = (area.width.saturating_sub(2) as usize * 2).max(1);
             let canvas_height = (area.height.saturating_sub(2) as usize * 4).max(1);
 
-            // Use integer-based sampling to avoid aliasing artifacts
-            // Sample at canvas resolution, mapping each canvas pixel to data
+            // Use bilinear interpolation for smooth rendering when canvas resolution
+            // exceeds data resolution (e.g., 30 range bins stretched to 400+ pixels)
             for cy in 0..canvas_height {
-                // Map canvas Y to doppler index (integer division for clean sampling)
-                let d_idx = (cy * n_doppler) / canvas_height;
-                let d_idx = d_idx.min(n_doppler - 1);
+                // Calculate floating-point doppler index for interpolation
+                let d_f = if canvas_height > 1 {
+                    cy as f64 * (n_doppler - 1) as f64 / (canvas_height - 1) as f64
+                } else {
+                    0.0
+                };
 
-                // Map doppler index to world Y coordinate
-                let y = min_doppler
-                    + (d_idx as f64 + 0.5) / n_doppler as f64 * (max_doppler - min_doppler);
+                // Get surrounding doppler indices
+                let d0 = (d_f.floor() as usize).min(n_doppler - 1);
+                let d1 = (d0 + 1).min(n_doppler - 1);
+                let df = d_f - d0 as f64; // Fractional part for interpolation
+
+                // Map to world Y coordinate
+                let y = min_doppler + (d_f / (n_doppler - 1).max(1) as f64) * (max_doppler - min_doppler);
 
                 for cx in 0..canvas_width {
-                    // Map canvas X to range index
-                    let r_idx = (cx * n_range) / canvas_width;
-                    let r_idx = r_idx.min(n_range - 1);
+                    // Calculate floating-point range index for interpolation
+                    let r_f = if canvas_width > 1 {
+                        cx as f64 * (n_range - 1) as f64 / (canvas_width - 1) as f64
+                    } else {
+                        0.0
+                    };
 
-                    // Map range index to world X coordinate
-                    let x =
-                        min_range + (r_idx as f64 + 0.5) / n_range as f64 * (max_range - min_range);
+                    // Get surrounding range indices
+                    let r0 = (r_f.floor() as usize).min(n_range - 1);
+                    let r1 = (r0 + 1).min(n_range - 1);
+                    let rf = r_f - r0 as f64; // Fractional part for interpolation
 
-                    // Get the dB value and normalize to 0-1
-                    let val = rd_map[[d_idx, r_idx]];
+                    // Map to world X coordinate
+                    let x = min_range + (r_f / (n_range - 1).max(1) as f64) * (max_range - min_range);
+
+                    // Bilinear interpolation: sample 4 surrounding values and blend
+                    let v00 = rd_map[[d0, r0]] as f64;
+                    let v01 = rd_map[[d0, r1]] as f64;
+                    let v10 = rd_map[[d1, r0]] as f64;
+                    let v11 = rd_map[[d1, r1]] as f64;
+
+                    let val = (v00 * (1.0 - df) * (1.0 - rf)
+                        + v01 * (1.0 - df) * rf
+                        + v10 * df * (1.0 - rf)
+                        + v11 * df * rf) as f32;
+
+                    // Normalize to 0-1 and get color
                     let normalized = ((val - min_db) / (max_db - min_db)).clamp(0.0, 1.0);
                     let color = colormap.to_color(normalized);
 
@@ -80,6 +104,79 @@ pub fn render_heatmap(
         });
 
     frame.render_widget(canvas, area);
+}
+
+/// Render debug overlay showing coordinate info at corners
+#[allow(clippy::too_many_arguments)]
+pub fn render_debug_overlay(
+    frame: &mut Frame,
+    area: Rect,
+    rd_map: &Array2<f32>,
+    n_range: usize,
+    n_doppler: usize,
+    range_bounds: (f64, f64),
+    doppler_bounds: (f64, f64),
+) {
+    let (min_range, max_range) = range_bounds;
+    let (min_doppler, max_doppler) = doppler_bounds;
+
+    // Inner area (excluding border)
+    let inner = Rect::new(
+        area.x + 1,
+        area.y + 1,
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    );
+
+    // Get corner values from the rd_map
+    let corners = [
+        // (d_idx, r_idx, label, x_pos, y_pos)
+        (0, 0, "BL", inner.x, inner.bottom().saturating_sub(1)),  // bottom-left
+        (0, n_range.saturating_sub(1), "BR", inner.right().saturating_sub(20), inner.bottom().saturating_sub(1)),  // bottom-right
+        (n_doppler.saturating_sub(1), 0, "TL", inner.x, inner.y),  // top-left
+        (n_doppler.saturating_sub(1), n_range.saturating_sub(1), "TR", inner.right().saturating_sub(20), inner.y),  // top-right
+    ];
+
+    for (d_idx, r_idx, label, x_pos, y_pos) in corners {
+        let val = if d_idx < rd_map.dim().0 && r_idx < rd_map.dim().1 {
+            rd_map[[d_idx, r_idx]]
+        } else {
+            0.0
+        };
+
+        // Calculate physical coordinates
+        let range_m = min_range + (r_idx as f64 / (n_range.saturating_sub(1).max(1)) as f64) * (max_range - min_range);
+        let doppler_hz = min_doppler + (d_idx as f64 / (n_doppler.saturating_sub(1).max(1)) as f64) * (max_doppler - min_doppler);
+
+        // Create overlay text
+        let text = format!(
+            "{}: [{},{}] v={:.1} r={:.1}m d={:.0}Hz",
+            label, d_idx, r_idx, val, range_m, doppler_hz
+        );
+
+        let overlay_area = Rect::new(x_pos, y_pos, text.len() as u16 + 2, 1);
+        if overlay_area.right() <= area.right() && overlay_area.bottom() <= area.bottom() {
+            let overlay = Paragraph::new(text)
+                .style(Style::default().fg(Color::White).bg(Color::Rgb(40, 40, 40)));
+            frame.render_widget(overlay, overlay_area);
+        }
+    }
+
+    // Also show dimensions info at center-top
+    let dims_text = format!(" dims: {}x{} (DxR) ", n_doppler, n_range);
+    let dims_x = area.x + (area.width.saturating_sub(dims_text.len() as u16)) / 2;
+    let dims_area = Rect::new(dims_x, area.y + 2, dims_text.len() as u16, 1);
+    let dims_overlay = Paragraph::new(dims_text)
+        .style(Style::default().fg(Color::Cyan).bg(Color::Rgb(40, 40, 40)));
+    frame.render_widget(dims_overlay, dims_area);
+
+    // Show coordinate system info
+    let coord_text = " rd_map[d,r]: d=Doppler(row), r=Range(col) ";
+    let coord_x = area.x + (area.width.saturating_sub(coord_text.len() as u16)) / 2;
+    let coord_area = Rect::new(coord_x, area.y + 3, coord_text.len() as u16, 1);
+    let coord_overlay = Paragraph::new(coord_text)
+        .style(Style::default().fg(Color::Yellow).bg(Color::Rgb(40, 40, 40)));
+    frame.render_widget(coord_overlay, coord_area);
 }
 
 /// Render axis labels around the heatmap
