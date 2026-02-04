@@ -422,6 +422,117 @@ def test_animated(backend: RadarBackend, verbose: bool = False) -> TestResult:
     return TestResult('animated', passed, msg)
 
 
+def test_hb100_stationary(backend: RadarBackend, verbose: bool = False) -> TestResult:
+    """
+    Test HB100 stationary pattern.
+    
+    Expected: Target at center Doppler (zero velocity), ~3m range.
+    """
+    backend.set_test_pattern('hb100_stationary')
+    frame = backend.get_frame()
+    
+    n_doppler, n_range = frame.shape
+    max_idx = np.unravel_index(frame.argmax(), frame.shape)
+    max_val = frame[max_idx]
+    
+    # Target should be at center Doppler (zero velocity)
+    center_d = n_doppler // 2
+    doppler_offset = abs(max_idx[0] - center_d)
+    at_zero_doppler = doppler_offset < n_doppler // 10  # Within 10% of center
+    
+    # Target should be around 30% of range (3m with 10m max)
+    expected_r = int(0.3 * n_range)
+    range_offset = abs(max_idx[1] - expected_r)
+    at_expected_range = range_offset < n_range // 4  # Within 25% tolerance
+    
+    # Max should be near the scale max
+    bright_enough = max_val > (backend.min_scale + backend.max_scale) / 2
+    
+    passed = at_zero_doppler and at_expected_range and bright_enough
+    
+    range_m = (max_idx[1] / n_range) * 10.0  # Assuming max_range=10m
+    
+    if verbose or not passed:
+        msg = f"target at d={max_idx[0]} (center={center_d}), r={max_idx[1]} (~{range_m:.1f}m), val={max_val:.1f}"
+    else:
+        msg = f"HB100 stationary at {range_m:.1f}m, zero Doppler"
+    
+    return TestResult('hb100_stationary', passed, msg)
+
+
+def test_hb100_walking(backend: RadarBackend, verbose: bool = False) -> TestResult:
+    """
+    Test HB100 walking pattern.
+    
+    Expected: Target above center Doppler (approaching), ~4m range.
+    """
+    backend.set_test_pattern('hb100_walking')
+    frame = backend.get_frame()
+    
+    n_doppler, n_range = frame.shape
+    max_idx = np.unravel_index(frame.argmax(), frame.shape)
+    max_val = frame[max_idx]
+    
+    # Target should be above center Doppler (positive = approaching)
+    center_d = n_doppler // 2
+    above_center = max_idx[0] > center_d
+    
+    # Target should be around 40% of range (4m with 10m max)
+    expected_r = int(0.4 * n_range)
+    range_offset = abs(max_idx[1] - expected_r)
+    at_expected_range = range_offset < n_range // 3  # Within 33% tolerance
+    
+    # Max should be bright
+    bright_enough = max_val > (backend.min_scale + backend.max_scale) / 2
+    
+    passed = above_center and at_expected_range and bright_enough
+    
+    range_m = (max_idx[1] / n_range) * 10.0
+    doppler_offset = max_idx[0] - center_d
+    
+    if verbose or not passed:
+        msg = f"target at d={max_idx[0]} (+{doppler_offset} from center), r={max_idx[1]} (~{range_m:.1f}m), val={max_val:.1f}"
+    else:
+        msg = f"HB100 walking at {range_m:.1f}m, +{doppler_offset} Doppler bins"
+    
+    return TestResult('hb100_walking', passed, msg)
+
+
+def test_dc_leakage(backend: RadarBackend, verbose: bool = False) -> TestResult:
+    """
+    Test DC leakage pattern.
+    
+    Expected: Bright horizontal line at zero Doppler, max at zero range.
+    """
+    backend.set_test_pattern('dc_leakage')
+    frame = backend.get_frame()
+    
+    n_doppler, n_range = frame.shape
+    max_idx = np.unravel_index(frame.argmax(), frame.shape)
+    max_val = frame[max_idx]
+    
+    # Max should be at center Doppler (DC line)
+    center_d = n_doppler // 2
+    at_dc = abs(max_idx[0] - center_d) < n_doppler // 20  # Within 5% of center
+    
+    # Max should be at or near zero range
+    at_near_range = max_idx[1] < n_range // 4  # Within first 25%
+    
+    # Check that DC line exists (center row should be brighter than edges)
+    dc_line_mean = frame[center_d, :].mean()
+    edge_mean = (frame[0, :].mean() + frame[-1, :].mean()) / 2
+    dc_prominent = dc_line_mean > edge_mean + 0.5
+    
+    passed = at_dc and at_near_range and dc_prominent
+    
+    if verbose or not passed:
+        msg = f"max at d={max_idx[0]} (center={center_d}), r={max_idx[1]}, DC_mean={dc_line_mean:.1f}, edge_mean={edge_mean:.1f}"
+    else:
+        msg = f"DC leakage visible at center Doppler"
+    
+    return TestResult('dc_leakage', passed, msg)
+
+
 def run_all_tests(verbose: bool = False, export_dir: str = None) -> List[TestResult]:
     """Run all test pattern tests."""
     print("Creating test backend...")
@@ -441,6 +552,9 @@ def run_all_tests(verbose: bool = False, export_dir: str = None) -> List[TestRes
         ('diagonal', test_diagonal),
         ('checkerboard', test_checkerboard),
         ('animated', test_animated),
+        ('hb100_stationary', test_hb100_stationary),
+        ('hb100_walking', test_hb100_walking),
+        ('dc_leakage', test_dc_leakage),
     ]
     
     results = []

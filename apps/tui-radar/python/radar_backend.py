@@ -289,13 +289,15 @@ class RadarBackend:
         
         # Test pattern mode (None = use animated targets)
         # Valid patterns: 'animated', 'corner_dots', 'gradient_h', 'gradient_v', 
-        #                 'center_target', 'grid', 'diagonal', 'checkerboard'
+        #                 'center_target', 'grid', 'diagonal', 'checkerboard',
+        #                 'hb100_stationary', 'hb100_walking', 'dc_leakage'
         self._test_pattern = 'animated'
         
         # Available patterns for cycling
         self._available_patterns = [
             'animated', 'corner_dots', 'gradient_h', 'gradient_v',
-            'center_target', 'grid', 'diagonal', 'checkerboard'
+            'center_target', 'grid', 'diagonal', 'checkerboard',
+            'hb100_stationary', 'hb100_walking', 'dc_leakage'
         ]
         
         # Create interesting simulated targets for 'animated' pattern
@@ -334,7 +336,8 @@ class RadarBackend:
         
         Args:
             pattern: One of 'animated', 'corner_dots', 'gradient_h', 'gradient_v',
-                    'center_target', 'grid', 'diagonal', 'checkerboard'
+                    'center_target', 'grid', 'diagonal', 'checkerboard',
+                    'hb100_stationary', 'hb100_walking', 'dc_leakage'
         """
         if pattern not in self._available_patterns:
             raise ValueError(f"Unknown pattern '{pattern}'. Available: {self._available_patterns}")
@@ -656,6 +659,153 @@ class RadarBackend:
                     else:
                         rd_map[d, r] = self.min_scale
         
+        elif self._test_pattern == 'hb100_stationary':
+            # Simulate HB100 at ~3m, stationary (zero Doppler)
+            # This is what you should see with HB100 placed at ~3m from phaser
+            #
+            # Expected appearance:
+            # - Bright spot at center Doppler (d = n_doppler/2)
+            # - Range bin corresponding to ~3 meters
+            # - Some spread in range due to FFT windowing
+            # - Noise floor everywhere else
+            
+            # Calculate range bin for 3 meters
+            # range_resolution = c / (2 * chirp_bw) 
+            # With chirp_bw = 500 MHz, range_res = 0.3m
+            # But we're displaying sliced range, so 3m should be around 30% of display
+            target_range_m = 3.0  # meters
+            target_range_fraction = target_range_m / self.max_range
+            target_r = int(target_range_fraction * self.n_range)
+            target_r = min(max(0, target_r), self.n_range - 1)
+            
+            # Zero Doppler = center of Doppler axis
+            target_d = self.n_doppler // 2
+            
+            # Add noise floor
+            noise_floor = self.min_scale + 1.5
+            rd_map[:, :] = noise_floor
+            noise = np.random.standard_normal((self.n_doppler, self.n_range)).astype(np.float32) * 0.3
+            rd_map += noise
+            
+            # Add target as elliptical Gaussian
+            # Wider in Doppler (velocity spread), narrower in range
+            sigma_r = max(2, self.n_range // 15)  # ~7% of range
+            sigma_d = max(10, self.n_doppler // 30)  # ~3% of Doppler
+            
+            r_idx = np.arange(self.n_range)
+            d_idx = np.arange(self.n_doppler)
+            R, D = np.meshgrid(r_idx, d_idx)
+            
+            dist_sq = ((R - target_r) / sigma_r)**2 + ((D - target_d) / sigma_d)**2
+            target_gauss = np.exp(-0.5 * dist_sq)
+            
+            # Target should be ~20-30 dB above noise floor
+            # In log10 scale, that's about 2-3 units above noise
+            target_level = self.max_scale - 1.0
+            rd_map = np.maximum(rd_map, noise_floor + target_gauss * (target_level - noise_floor))
+            
+            rd_map = np.clip(rd_map, self.min_scale, self.max_scale)
+        
+        elif self._test_pattern == 'hb100_walking':
+            # Simulate HB100 moving toward the radar (walking speed ~1.5 m/s)
+            # This creates a target offset from zero Doppler
+            #
+            # Expected appearance:
+            # - Bright spot above center Doppler (positive Doppler = approaching)
+            # - Range bin around ~4 meters
+            # - May have some spread due to motion
+            
+            target_range_m = 4.0
+            target_range_fraction = target_range_m / self.max_range
+            target_r = int(target_range_fraction * self.n_range)
+            target_r = min(max(0, target_r), self.n_range - 1)
+            
+            # Doppler shift for 1.5 m/s approaching
+            # Doppler_Hz = 2 * v * f_c / c
+            # With f_c = 10.5 GHz, v = 1.5 m/s: fd ≈ 105 Hz
+            # Doppler resolution = 1 / (num_chirps * ramp_time)
+            #                    = 1 / (512 * 500e-6) = 3.9 Hz
+            # So 105 Hz = ~27 Doppler bins from center
+            walking_speed_mps = 1.5
+            center_freq_hz = 10.5e9
+            c = 3e8
+            doppler_hz = 2 * walking_speed_mps * center_freq_hz / c
+            doppler_res = 1 / (self.num_chirps * self.ramp_time_us * 1e-6)
+            doppler_bins_offset = int(doppler_hz / doppler_res)
+            
+            # Positive Doppler = upper half (approaching)
+            target_d = self.n_doppler // 2 + doppler_bins_offset
+            target_d = min(max(0, target_d), self.n_doppler - 1)
+            
+            # Add noise floor
+            noise_floor = self.min_scale + 1.5
+            rd_map[:, :] = noise_floor
+            noise = np.random.standard_normal((self.n_doppler, self.n_range)).astype(np.float32) * 0.3
+            rd_map += noise
+            
+            # Add target - slightly more spread due to motion
+            sigma_r = max(2, self.n_range // 12)
+            sigma_d = max(15, self.n_doppler // 20)
+            
+            r_idx = np.arange(self.n_range)
+            d_idx = np.arange(self.n_doppler)
+            R, D = np.meshgrid(r_idx, d_idx)
+            
+            dist_sq = ((R - target_r) / sigma_r)**2 + ((D - target_d) / sigma_d)**2
+            target_gauss = np.exp(-0.5 * dist_sq)
+            
+            target_level = self.max_scale - 1.0
+            rd_map = np.maximum(rd_map, noise_floor + target_gauss * (target_level - noise_floor))
+            
+            rd_map = np.clip(rd_map, self.min_scale, self.max_scale)
+        
+        elif self._test_pattern == 'dc_leakage':
+            # Simulate DC leakage / direct path interference
+            # This is common in real radar systems - a bright line at zero Doppler
+            # often with maximum intensity at zero range
+            #
+            # Expected appearance:
+            # - Bright horizontal line across entire range at center Doppler
+            # - Brightest at near range (left side)
+            # - Decaying with range
+            
+            # Add noise floor
+            noise_floor = self.min_scale + 1.5
+            rd_map[:, :] = noise_floor
+            noise = np.random.standard_normal((self.n_doppler, self.n_range)).astype(np.float32) * 0.2
+            rd_map += noise
+            
+            # DC component - horizontal line at center Doppler
+            center_d = self.n_doppler // 2
+            dc_width = max(5, self.n_doppler // 50)  # ~2% of Doppler
+            
+            for dd in range(-dc_width, dc_width + 1):
+                d = center_d + dd
+                if 0 <= d < self.n_doppler:
+                    # Decay with range (1/r falloff in log scale)
+                    for r in range(self.n_range):
+                        range_decay = 1.0 - 0.5 * (r / self.n_range)  # Linear decay
+                        dc_level = self.max_scale * range_decay * np.exp(-0.5 * (dd / (dc_width/2))**2)
+                        rd_map[d, r] = max(rd_map[d, r], dc_level)
+            
+            # Add a real target at ~5m to show it through the DC
+            target_r = int(0.5 * self.n_range)  # 5m with 10m max
+            target_d = center_d + 20  # Slight positive Doppler
+            if target_d < self.n_doppler:
+                sigma_r = max(2, self.n_range // 15)
+                sigma_d = max(10, self.n_doppler // 40)
+                
+                r_idx = np.arange(self.n_range)
+                d_idx = np.arange(self.n_doppler)
+                R, D = np.meshgrid(r_idx, d_idx)
+                
+                dist_sq = ((R - target_r) / sigma_r)**2 + ((D - target_d) / sigma_d)**2
+                target_gauss = np.exp(-0.5 * dist_sq)
+                
+                rd_map = np.maximum(rd_map, noise_floor + target_gauss * (self.max_scale - 1 - noise_floor))
+            
+            rd_map = np.clip(rd_map, self.min_scale, self.max_scale)
+        
         return rd_map.astype(np.float32)
 
     def _apply_mti(self, rx_bursts: np.ndarray) -> np.ndarray:
@@ -825,7 +975,8 @@ def create_backend(
         mode: 'hardware' or 'synthetic'
         test_pattern: For synthetic mode, the test pattern to use.
             Options: 'animated' (default), 'corner_dots', 'gradient_h', 
-            'gradient_v', 'center_target', 'grid', 'diagonal', 'checkerboard'
+            'gradient_v', 'center_target', 'grid', 'diagonal', 'checkerboard',
+            'hb100_stationary', 'hb100_walking', 'dc_leakage'
     """
     backend = RadarBackend(
         mode=mode,
