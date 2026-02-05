@@ -678,6 +678,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "radar-core"
+version = "0.1.0"
+dependencies = [
+ "ndarray",
+ "pyo3",
+ "pyo3-build-config",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "ratatui"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1007,8 +1019,7 @@ dependencies = [
  "crossterm",
  "ndarray",
  "num-complex",
- "pyo3",
- "pyo3-build-config",
+ "radar-core",
  "ratatui",
  "serde",
  "serde_json",

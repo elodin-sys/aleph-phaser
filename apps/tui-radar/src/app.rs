@@ -68,10 +68,10 @@ impl App {
         let data_source = DataSource::new(&config)?;
 
         // Get actual dimensions and display range from the backend
-        let n_doppler = data_source.n_doppler;
-        let n_range = data_source.n_range;
-        let min_db = data_source.min_scale;
-        let max_db = data_source.max_scale;
+        let n_doppler = data_source.n_doppler();
+        let n_range = data_source.n_range();
+        let min_db = data_source.min_scale();
+        let max_db = data_source.max_scale();
 
         // Initialize empty arrays with correct dimensions
         let rd_map = Array2::zeros((n_doppler, n_range));

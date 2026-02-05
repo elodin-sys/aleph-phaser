@@ -1,27 +1,14 @@
 //! Radar configuration parameters
 //!
-//! Note: The Python backend (radar_backend.py) calculates n_range automatically
-//! from ramp_time_us and sample_rate to match Jon's script exactly:
-//!   n_range = int(0.9 * ramp_time_us * sample_rate / 1e6)
+//! This module provides the TUI-specific configuration that wraps
+//! radar_core::RadarConfig with additional display parameters.
 
 use serde::{Deserialize, Serialize};
 
-/// Available test patterns for synthetic mode
-pub const AVAILABLE_PATTERNS: &[&str] = &[
-    "animated",
-    "corner_dots",
-    "gradient_h",
-    "gradient_v",
-    "center_target",
-    "grid",
-    "diagonal",
-    "checkerboard",
-];
-
 /// Radar system configuration
 ///
-/// These parameters are passed to the Python RadarBackend which handles
-/// all radar processing. Parameters match Jon's Range_Doppler_Plot_Aleph.py.
+/// This configuration extends radar_core::RadarConfig with TUI-specific
+/// parameters like target_fps and synthetic flag (for CLI compatibility).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RadarConfig {
     /// PlutoSDR URI (e.g., "ip:192.168.2.1")
@@ -91,5 +78,53 @@ impl RadarConfig {
     pub fn max_doppler(&self) -> f64 {
         let prf = 1.0 / self.pri_s();
         prf / 2.0
+    }
+
+    /// Convert to radar_core::RadarConfig
+    pub fn to_core_config(&self) -> radar_core::RadarConfig {
+        let mode = if self.synthetic {
+            radar_core::RadarMode::Synthetic
+        } else {
+            radar_core::RadarMode::Hardware
+        };
+
+        let test_pattern = radar_core::TestPattern::from_name(&self.test_pattern)
+            .unwrap_or_default();
+
+        radar_core::RadarConfig {
+            mode,
+            sdr_uri: self.sdr_uri.clone(),
+            phaser_uri: self.phaser_uri.clone(),
+            sample_rate: self.sample_rate,
+            n_doppler: self.n_doppler,
+            ramp_time_us: self.ramp_time_us,
+            chirp_bw: self.chirp_bw,
+            center_freq: self.center_freq,
+            output_freq: self.output_freq,
+            rx_gain: self.rx_gain,
+            max_range: self.max_range,
+            target_fps: self.target_fps,
+            test_pattern,
+        }
+    }
+
+    /// Create from radar_core::RadarConfig with TUI defaults
+    #[allow(dead_code)]
+    pub fn from_core_config(core: &radar_core::RadarConfig) -> Self {
+        Self {
+            sdr_uri: core.sdr_uri.clone(),
+            phaser_uri: core.phaser_uri.clone(),
+            synthetic: core.mode == radar_core::RadarMode::Synthetic,
+            target_fps: core.target_fps,
+            n_doppler: core.n_doppler,
+            max_range: core.max_range,
+            chirp_bw: core.chirp_bw,
+            ramp_time_us: core.ramp_time_us,
+            sample_rate: core.sample_rate,
+            center_freq: core.center_freq,
+            output_freq: core.output_freq,
+            rx_gain: core.rx_gain,
+            test_pattern: core.test_pattern.name().to_string(),
+        }
     }
 }

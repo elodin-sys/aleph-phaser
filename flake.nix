@@ -116,8 +116,9 @@
       
       # TUI Radar application (GPU-accelerated Range-Doppler display)
       # Uses rust-overlay for modern Rust toolchain
+      # Builds from workspace root with radar-core library
       tui-radar = final.callPackage ./nix/pkgs/tui-radar.nix {
-        appsSrc = ./apps;
+        workspaceSrc = ./.;
         inherit (final) rust-bin makeRustPlatform;
       };
     };

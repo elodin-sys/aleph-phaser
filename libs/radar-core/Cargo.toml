@@ -1,0 +1,28 @@
+[package]
+name = "radar-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Shared radar backend library for PyO3 bridge, types, and wire protocol"
+
+[dependencies]
+# Python interop for radar backend
+pyo3 = { workspace = true }
+
+# Arrays and math
+ndarray = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Serialization (for config)
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+pyo3-build-config = { workspace = true }
+
+[lib]
+name = "radar_core"
+path = "src/lib.rs"

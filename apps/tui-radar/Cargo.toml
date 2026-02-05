@@ -1,12 +1,16 @@
 [package]
 name = "tui-radar"
-version = "0.1.0"
-edition = "2021"
-authors = ["Aleph-Phaser Team"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 description = "GPU-accelerated Range-Doppler radar TUI for CN0566 Phaser"
 readme = "README.md"
 
 [dependencies]
+# Radar backend library
+radar-core = { path = "../../libs/radar-core" }
+
 # TUI
 ratatui = "0.29"
 crossterm = "0.28"
@@ -14,11 +18,8 @@ crossterm = "0.28"
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# Python interop for radar backend
-pyo3 = { version = "0.22", features = ["auto-initialize"] }
-
-# Arrays and math
-ndarray = "0.16"
+# Arrays and math (re-export from radar-core for compatibility)
+ndarray = { workspace = true }
 num-complex = "0.4"
 
 # CLI
@@ -26,19 +27,12 @@ clap = { version = "4", features = ["derive"] }
 
 # Error handling
 color-eyre = "0.6"
-thiserror = "2"
+thiserror = { workspace = true }
 
 # Serialization (for config)
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-
-[build-dependencies]
-pyo3-build-config = "0.22"
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [[bin]]
 name = "tui-radar"
 path = "src/main.rs"
-
-[profile.release]
-opt-level = 3
-lto = true
