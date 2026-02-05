@@ -16,6 +16,28 @@ pub enum Colormap {
 }
 
 impl Colormap {
+    /// Cycle to the next colormap.
+    pub fn next(&self) -> Self {
+        match self {
+            Colormap::Inferno => Colormap::Plasma,
+            Colormap::Plasma => Colormap::Viridis,
+            Colormap::Viridis => Colormap::Hot,
+            Colormap::Hot => Colormap::Grayscale,
+            Colormap::Grayscale => Colormap::Inferno,
+        }
+    }
+
+    /// Get the colormap name.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Colormap::Inferno => "Inferno",
+            Colormap::Plasma => "Plasma",
+            Colormap::Viridis => "Viridis",
+            Colormap::Hot => "Hot",
+            Colormap::Grayscale => "Grayscale",
+        }
+    }
+
     /// Generate a 256-entry RGBA lookup table.
     pub fn generate_lut(&self) -> Vec<u8> {
         let mut lut = Vec::with_capacity(256 * 4);

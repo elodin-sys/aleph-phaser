@@ -1,4 +1,8 @@
-//! WebSocket client for receiving radar frames.
+//! WebSocket client for bidirectional radar communication.
+//!
+//! - Receives binary messages (radar frames)
+//! - Receives text messages (JSON state updates)
+//! - Sends text messages (JSON commands)
 
 use crate::protocol::RadarFrame;
 use futures::channel::mpsc;
@@ -16,11 +20,12 @@ pub enum ConnectionState {
     Error,
 }
 
-/// WebSocket client for receiving radar frames.
+/// WebSocket client for bidirectional radar communication.
 pub struct FrameClient {
-    socket: WebSocket,
+    socket: Rc<WebSocket>,
     state: Rc<RefCell<ConnectionState>>,
     frame_rx: mpsc::UnboundedReceiver<RadarFrame>,
+    state_rx: mpsc::UnboundedReceiver<String>,
 }
 
 impl FrameClient {
@@ -30,17 +35,20 @@ impl FrameClient {
 
         let socket = WebSocket::new(url)?;
         socket.set_binary_type(BinaryType::Arraybuffer);
+        let socket = Rc::new(socket);
 
         let state = Rc::new(RefCell::new(ConnectionState::Connecting));
         let (frame_tx, frame_rx) = mpsc::unbounded();
+        let (state_tx, state_rx) = mpsc::unbounded();
 
         // Set up event handlers
-        Self::setup_handlers(&socket, state.clone(), frame_tx)?;
+        Self::setup_handlers(&socket, state.clone(), frame_tx, state_tx)?;
 
         Ok(Self {
             socket,
             state,
             frame_rx,
+            state_rx,
         })
     }
 
@@ -49,6 +57,7 @@ impl FrameClient {
         socket: &WebSocket,
         state: Rc<RefCell<ConnectionState>>,
         frame_tx: mpsc::UnboundedSender<RadarFrame>,
+        state_tx: mpsc::UnboundedSender<String>,
     ) -> Result<(), JsValue> {
         // onopen
         let state_clone = state.clone();
@@ -101,9 +110,13 @@ impl FrameClient {
         socket.set_onerror(Some(onerror.as_ref().unchecked_ref()));
         onerror.forget();
 
-        // onmessage
+        // onmessage - handle both binary (frames) and text (state updates)
         let onmessage = Closure::wrap(Box::new(move |event: MessageEvent| {
-            if let Ok(buffer) = event.data().dyn_into::<js_sys::ArrayBuffer>() {
+            let data = event.data();
+
+            // Check if it's binary (ArrayBuffer) or text (String)
+            if let Ok(buffer) = data.clone().dyn_into::<js_sys::ArrayBuffer>() {
+                // Binary message = radar frame
                 let array = js_sys::Uint8Array::new(&buffer);
                 let bytes = array.to_vec();
 
@@ -113,6 +126,12 @@ impl FrameClient {
                     }
                 } else {
                     log::warn!("Failed to parse frame ({} bytes)", bytes.len());
+                }
+            } else if let Some(text) = data.as_string() {
+                // Text message = JSON state update
+                log::debug!("Received state update: {}", text);
+                if state_tx.unbounded_send(text).is_err() {
+                    log::warn!("State channel closed");
                 }
             }
         }) as Box<dyn FnMut(_)>);
@@ -128,10 +147,31 @@ impl FrameClient {
     }
 
     /// Try to receive the next frame (non-blocking).
-    pub fn try_recv(&mut self) -> Option<RadarFrame> {
+    pub fn try_recv_frame(&mut self) -> Option<RadarFrame> {
         match self.frame_rx.try_next() {
             Ok(Some(frame)) => Some(frame),
             _ => None,
+        }
+    }
+
+    /// Try to receive the next state update (non-blocking).
+    pub fn try_recv_state(&mut self) -> Option<String> {
+        match self.state_rx.try_next() {
+            Ok(Some(state)) => Some(state),
+            _ => None,
+        }
+    }
+
+    /// Send a command to the server.
+    pub fn send_command(&self, cmd: &str) {
+        if *self.state.borrow() == ConnectionState::Connected {
+            if let Err(e) = self.socket.send_with_str(cmd) {
+                log::error!("Failed to send command: {:?}", e);
+            } else {
+                log::debug!("Sent command: {}", cmd);
+            }
+        } else {
+            log::warn!("Cannot send command: not connected");
         }
     }
 

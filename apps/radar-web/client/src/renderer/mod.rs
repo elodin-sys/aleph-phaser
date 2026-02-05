@@ -303,6 +303,67 @@ impl Renderer {
     /// Set zoom level.
     pub fn set_zoom(&mut self, zoom: f32) {
         self.uniforms.zoom = zoom.max(0.1).min(10.0);
+        self.write_uniforms();
+    }
+
+    /// Get current zoom level.
+    pub fn zoom(&self) -> f32 {
+        self.uniforms.zoom
+    }
+
+    /// Adjust zoom by a factor (>1 = zoom in, <1 = zoom out).
+    pub fn adjust_zoom(&mut self, factor: f32) {
+        self.set_zoom(self.uniforms.zoom * factor);
+    }
+
+    /// Set pan offset.
+    pub fn set_pan(&mut self, pan_x: f32, pan_y: f32) {
+        self.uniforms.pan_x = pan_x.clamp(-1.0, 1.0);
+        self.uniforms.pan_y = pan_y.clamp(-1.0, 1.0);
+        self.write_uniforms();
+    }
+
+    /// Adjust pan by delta.
+    pub fn adjust_pan(&mut self, delta_x: f32, delta_y: f32) {
+        self.set_pan(
+            self.uniforms.pan_x + delta_x,
+            self.uniforms.pan_y + delta_y,
+        );
+    }
+
+    /// Get current pan offset.
+    pub fn pan(&self) -> (f32, f32) {
+        (self.uniforms.pan_x, self.uniforms.pan_y)
+    }
+
+    /// Set gain (brightness multiplier).
+    pub fn set_gain(&mut self, gain: f32) {
+        self.uniforms.gain = gain.max(0.1).min(5.0);
+        self.write_uniforms();
+    }
+
+    /// Get current gain.
+    pub fn gain(&self) -> f32 {
+        self.uniforms.gain
+    }
+
+    /// Adjust gain by delta.
+    pub fn adjust_gain(&mut self, delta: f32) {
+        self.set_gain(self.uniforms.gain + delta);
+    }
+
+    /// Reset view to defaults (zoom=1, pan=0, gain=1).
+    pub fn reset_view(&mut self) {
+        self.uniforms.zoom = 1.0;
+        self.uniforms.pan_x = 0.0;
+        self.uniforms.pan_y = 0.0;
+        self.uniforms.gain = 1.0;
+        self.uniforms.gamma = 1.0;
+        self.write_uniforms();
+    }
+
+    /// Write uniforms to GPU.
+    fn write_uniforms(&self) {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[self.uniforms]));
     }
@@ -311,5 +372,18 @@ impl Renderer {
     pub fn set_colormap(&mut self, colormap: Colormap) {
         self.colormap_texture = texture::ColormapTexture::new(&self.device, &self.queue, colormap);
         self.recreate_bind_group();
+    }
+
+    /// Resize the canvas and surface.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width > 0 && height > 0 {
+            self.surface_config.width = width;
+            self.surface_config.height = height;
+            self.surface.configure(&self.device, &self.surface_config);
+            self.uniforms.width = width as f32;
+            self.uniforms.height = height as f32;
+            self.write_uniforms();
+            log::info!("Renderer resized to {}x{}", width, height);
+        }
     }
 }

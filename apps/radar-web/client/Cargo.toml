@@ -20,6 +20,7 @@ web-sys = { version = "0.3", features = [
     "Window",
     "Document",
     "Element",
+    "EventTarget",
     "HtmlCanvasElement",
     "WebSocket",
     "BinaryType",
@@ -29,9 +30,13 @@ web-sys = { version = "0.3", features = [
     "Performance",
     "Event",
     "KeyboardEvent",
+    "MouseEvent",
+    "WheelEvent",
     "DomTokenList",
     "DomRect",
     "Location",
+    "HtmlElement",
+    "CssStyleDeclaration",
 ] }
 
 # Error handling and logging

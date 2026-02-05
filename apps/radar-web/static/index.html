@@ -15,6 +15,7 @@
             color: #eee;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             overflow: hidden;
+            user-select: none;
         }
         #container {
             width: 100vw;
@@ -22,44 +23,158 @@
             display: flex;
             flex-direction: column;
         }
+
+        /* Header bar */
         #header {
             padding: 8px 16px;
-            background: #16213e;
+            background: rgba(22, 33, 62, 0.95);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 14px;
+            font-size: 13px;
+            z-index: 10;
         }
-        #status {
+        #header-left {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 16px;
+        }
+        #header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .header-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .header-label {
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+        .header-value {
+            font-weight: 500;
+        }
+        #mode-display {
+            color: #f59e0b;
+        }
+        #mode-display.synthetic {
+            color: #22c55e;
+        }
+        #mti-display {
+            color: #888;
+        }
+        #mti-display.enabled {
+            color: #22c55e;
+        }
+        #paused-display {
+            color: #ef4444;
+            font-weight: bold;
         }
         #status-indicator {
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             background: #ef4444;
         }
         #status-indicator.connected {
             background: #22c55e;
         }
+
+        /* Canvas container */
         #canvas-container {
             flex: 1;
+            position: relative;
             display: flex;
             justify-content: center;
             align-items: center;
+            overflow: hidden;
         }
-        canvas {
-            max-width: 100%;
-            max-height: 100%;
+        #radar-canvas {
+            cursor: crosshair;
+            outline: none;
         }
+        #radar-canvas:focus {
+            outline: 2px solid #3b82f6;
+            outline-offset: 2px;
+        }
+
+        /* Controls bar at bottom */
+        #controls {
+            padding: 6px 16px;
+            background: rgba(22, 33, 62, 0.95);
+            font-size: 11px;
+            color: #888;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+        .shortcut {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-right: 12px;
+        }
+        .key {
+            background: #2a2a4e;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #ccc;
+        }
+        #view-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        /* Toast notifications */
+        #toast {
+            position: fixed;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            z-index: 100;
+            transition: opacity 0.3s;
+        }
+        #toast.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Debug overlay */
+        #debug-overlay {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 20;
+        }
+        #debug-overlay.hidden {
+            display: none;
+        }
+
+        /* Loading screen */
         #loading {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
             text-align: center;
+            z-index: 50;
         }
         #loading.hidden {
             display: none;
@@ -80,23 +195,83 @@
 </head>
 <body>
     <div id="container">
+        <!-- Header bar -->
         <header id="header">
-            <span>Radar Web Visualization</span>
-            <div id="status">
-                <div id="status-indicator"></div>
-                <span id="status-text">Disconnected</span>
-                <span id="fps-counter">0 FPS</span>
+            <div id="header-left">
+                <span style="font-weight: 600;">Radar Web</span>
+                <div class="header-item">
+                    <span class="header-label">Mode</span>
+                    <span id="mode-display" class="header-value synthetic">SYNTHETIC</span>
+                </div>
+                <div class="header-item">
+                    <span class="header-label">Pattern</span>
+                    <span id="pattern-display" class="header-value">animated</span>
+                </div>
+                <div class="header-item">
+                    <span class="header-label">MTI</span>
+                    <span id="mti-display" class="header-value">OFF</span>
+                </div>
+                <span id="paused-display"></span>
+            </div>
+            <div id="header-right">
+                <div class="header-item">
+                    <span class="header-label">Dims</span>
+                    <span id="dims-display" class="header-value">--</span>
+                </div>
+                <div class="header-item">
+                    <span id="fps-counter" class="header-value">0 FPS</span>
+                </div>
+                <div class="header-item">
+                    <div id="status-indicator"></div>
+                    <span id="status-text">Connecting...</span>
+                </div>
             </div>
         </header>
+
+        <!-- Main canvas area -->
         <div id="canvas-container">
-            <canvas id="radar-canvas"></canvas>
+            <canvas id="radar-canvas" tabindex="0"></canvas>
+            
+            <!-- Debug overlay (hidden by default) -->
+            <div id="debug-overlay" class="hidden">
+                <div>Zoom: <span id="zoom-display">1.0x</span></div>
+                <div>Gain: <span id="gain-display">1.0x</span></div>
+                <div>Colormap: <span id="colormap-display">Inferno</span></div>
+            </div>
         </div>
+
+        <!-- Controls bar -->
+        <footer id="controls">
+            <div id="shortcuts">
+                <span class="shortcut"><span class="key">T</span> Pattern</span>
+                <span class="shortcut"><span class="key">M</span> MTI</span>
+                <span class="shortcut"><span class="key">E</span> Export</span>
+                <span class="shortcut"><span class="key">C</span> Colormap</span>
+                <span class="shortcut"><span class="key">+/-</span> Gain</span>
+                <span class="shortcut"><span class="key">P</span> Pause</span>
+                <span class="shortcut"><span class="key">R</span> Reset</span>
+                <span class="shortcut"><span class="key">D</span> Debug</span>
+                <span class="shortcut"><span class="key">Scroll</span> Zoom</span>
+                <span class="shortcut"><span class="key">Drag</span> Pan</span>
+            </div>
+            <div id="view-controls">
+                <span>Zoom: <span id="zoom-display-footer">1.0x</span></span>
+                <span>Gain: <span id="gain-display-footer">1.0x</span></span>
+                <span>Colormap: <span id="colormap-display-footer">Inferno</span></span>
+            </div>
+        </footer>
+
+        <!-- Toast notification -->
+        <div id="toast" class="hidden"></div>
+
+        <!-- Loading screen -->
         <div id="loading">
             <div class="spinner"></div>
             <p>Loading WebGPU client...</p>
             <p id="loading-status"></p>
         </div>
     </div>
+
     <script type="module">
         const loadingStatus = document.getElementById('loading-status');
         const loading = document.getElementById('loading');

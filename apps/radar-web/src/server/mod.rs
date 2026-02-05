@@ -10,23 +10,38 @@ use radar_core::RadarConfig;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tracing::info;
 
-pub use broadcast::FrameBroadcast;
+pub use broadcast::{FrameBroadcast, StateBroadcast};
 
 /// Run the radar web server.
 pub async fn run(radar_config: Arc<RadarConfig>, config: ServerConfig) -> anyhow::Result<()> {
-    // Create broadcast channel for frame distribution
-    let broadcast = FrameBroadcast::new(16);
+    // Create broadcast channel for frame distribution (binary)
+    let frame_broadcast = FrameBroadcast::new(16);
+
+    // Create broadcast channel for state updates (JSON)
+    let state_broadcast = StateBroadcast::new(16);
+
+    // Create command channel for client commands to acquisition loop
+    let (command_tx, command_rx) = mpsc::channel(32);
 
     // Start frame acquisition task
-    let acq_broadcast = broadcast.clone();
+    let acq_frame_broadcast = frame_broadcast.clone();
+    let acq_state_broadcast = state_broadcast.clone();
     let acq_config = radar_config.clone();
     let interval_ms = config.frame_interval_ms;
     tokio::spawn(async move {
-        broadcast::acquisition_loop(acq_config, acq_broadcast, interval_ms).await;
+        broadcast::acquisition_loop(
+            acq_config,
+            acq_frame_broadcast,
+            acq_state_broadcast,
+            command_rx,
+            interval_ms,
+        )
+        .await;
     });
 
     // Determine static files directory
@@ -38,7 +53,11 @@ pub async fn run(radar_config: Arc<RadarConfig>, config: ServerConfig) -> anyhow
     // Build router
     let app = Router::new()
         .merge(routes::api_routes(radar_config.clone()))
-        .merge(websocket::ws_routes(broadcast))
+        .merge(websocket::ws_routes(
+            frame_broadcast,
+            state_broadcast,
+            command_tx,
+        ))
         .fallback_service(ServeDir::new(&static_dir))
         .layer(
             CorsLayer::new()
