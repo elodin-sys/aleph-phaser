@@ -1,0 +1,46 @@
+[package]
+name = "radar-web-client"
+version = "0.1.0"
+edition = "2021"
+description = "WebGPU radar visualization client (WASM)"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# WebGPU - v25+ requires Rust 1.93+
+wgpu = { version = "25", default-features = false, features = ["webgpu", "wgsl"] }
+
+# WASM bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "WebSocket",
+    "BinaryType",
+    "MessageEvent",
+    "Blob",
+    "Navigator",
+    "Performance",
+    "Event",
+    "KeyboardEvent",
+    "DomTokenList",
+    "DomRect",
+    "Location",
+] }
+
+# Error handling and logging
+console_error_panic_hook = "0.1"
+console_log = "1"
+log = "0.4"
+
+# Async
+futures = "0.3"
+
+# Utilities
+bytemuck = { version = "1.14", features = ["derive"] }

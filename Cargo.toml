@@ -13,6 +13,8 @@ resolver = "2"
 members = [
     "libs/radar-core",
     "apps/tui-radar",
+    "apps/radar-web",
+    "apps/radar-web/client",
 ]
 
 [workspace.package]

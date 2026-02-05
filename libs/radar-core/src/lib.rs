@@ -98,9 +98,44 @@ impl RadarSource {
         self.backend.capture()
     }
 
-    /// Get frame dimensions.
+    /// Get the next full-resolution frame from the radar source.
+    ///
+    /// Returns a `RadarFrame` containing the Range-Doppler map data
+    /// at full resolution (typically 512x1800) without range slicing.
+    /// This is useful for web visualization where client-side zoom is desired.
+    pub fn get_frame_full(&mut self) -> Result<RadarFrame, RadarError> {
+        let data = self.backend.capture_full()?;
+        let dims = self.backend.dimensions_full();
+
+        Ok(RadarFrame {
+            dimensions: dims,
+            format: FrameFormat::Float32,
+            data: FrameData::Float32(data.into_raw_vec_and_offset().0),
+            scale_min: self.backend.min_scale(),
+            scale_max: self.backend.max_scale(),
+            range_min_m: 0.0,
+            range_max_m: self.config.max_unambiguous_range() as f32,
+            doppler_min_hz: -self.config.max_doppler() as f32,
+            doppler_max_hz: self.config.max_doppler() as f32,
+            mti_enabled: self.backend.mti_enabled(),
+        })
+    }
+
+    /// Get full-resolution raw frame data as an ndarray.
+    ///
+    /// Returns the full (n_doppler x n_range_full) frame without slicing.
+    pub fn capture_raw_full(&mut self) -> Result<Array2<f32>, RadarError> {
+        self.backend.capture_full()
+    }
+
+    /// Get frame dimensions (sliced to display range).
     pub fn dimensions(&self) -> FrameDimensions {
         self.backend.dimensions()
+    }
+
+    /// Get full-resolution frame dimensions.
+    pub fn dimensions_full(&self) -> FrameDimensions {
+        self.backend.dimensions_full()
     }
 
     /// Get the display value range (min, max) in log10 scale.

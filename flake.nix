@@ -55,8 +55,10 @@
         pyadi-iio
       ]);
       
-      # Rust toolchain
-      rustToolchain = pkgs.rust-bin.stable.latest.default;
+      # Rust toolchain with WASM target for web client
+      rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+        targets = [ "wasm32-unknown-unknown" ];
+      };
     in {
       devShells.default = pkgs.mkShell {
         name = "tui-radar-dev";
@@ -66,6 +68,11 @@
           rustToolchain
           pkgs.pkg-config
           pkgs.libiio  # Provides iio_info, iio_attr, etc.
+          
+          # WASM tooling for radar-web client
+          pkgs.wasm-pack
+          pkgs.wasm-bindgen-cli
+          pkgs.binaryen  # Provides wasm-opt
         ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
           pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
         ];
@@ -85,6 +92,11 @@
           echo "Build: cargo build --release"
           echo "Run:   ./target/release/tui-radar --synthetic"
           echo "       ./target/release/tui-radar --sdr-uri ip:X.X.X.X --phaser-uri ip:X.X.X.X"
+          echo ""
+          echo "Web (build WASM client):"
+          echo "  cd apps/radar-web/client && wasm-pack build --target web --dev"
+          echo "  cp -r pkg/* ../static/"
+          echo "  cargo run -p radar-web -- --synthetic"
         '';
       };
     });
@@ -120,6 +132,13 @@
       tui-radar = final.callPackage ./nix/pkgs/tui-radar.nix {
         workspaceSrc = ./.;
         inherit (final) rust-bin makeRustPlatform;
+      };
+      
+      # Radar Web application (WebGPU visualization server)
+      # Includes WASM client built with wasm-pack
+      radar-web = final.callPackage ./nix/pkgs/radar-web.nix {
+        workspaceSrc = ./.;
+        inherit (final) rust-bin makeRustPlatform wasm-pack wasm-bindgen-cli binaryen;
       };
     };
     

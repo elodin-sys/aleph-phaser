@@ -1,0 +1,17 @@
+{
+  "name": "radar-web-client",
+  "type": "module",
+  "description": "WebGPU radar visualization client (WASM)",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "radar_web_client_bg.wasm",
+    "radar_web_client.js",
+    "radar_web_client.d.ts"
+  ],
+  "main": "radar_web_client.js",
+  "types": "radar_web_client.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

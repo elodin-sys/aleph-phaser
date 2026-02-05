@@ -19,6 +19,7 @@ pub struct PythonBackend {
     py_backend: Py<PyAny>,
     n_doppler: usize,
     n_range: usize,
+    n_range_full: usize,
     min_scale: f32,
     max_scale: f32,
     mti_enabled: bool,
@@ -42,7 +43,8 @@ impl PythonBackend {
             let radar_backend = py.import_bound("radar_backend").map_err(|e| {
                 RadarError::ImportError(format!(
                     "Failed to import radar_backend module: {}. \
-                     Make sure radar_backend.py is in the python directory.",
+                     Make sure to run from the repository root, or set RADAR_BACKEND_PATH \
+                     to point to the directory containing radar_backend.py.",
                     e
                 ))
             })?;
@@ -78,6 +80,10 @@ impl PythonBackend {
             let dims: (usize, usize) = backend.call_method0("get_dimensions")?.extract()?;
             let (n_doppler, n_range) = dims;
 
+            // Get full-resolution dimensions
+            let dims_full: (usize, usize) = backend.call_method0("get_dimensions_full")?.extract()?;
+            let (_, n_range_full) = dims_full;
+
             // Get display range from Python config
             let py_config = backend.call_method0("get_config")?;
             let min_scale: f32 = py_config.get_item("min_scale")?.extract()?;
@@ -87,6 +93,7 @@ impl PythonBackend {
                 py_backend: backend.unbind(),
                 n_doppler,
                 n_range,
+                n_range_full,
                 min_scale,
                 max_scale,
                 mti_enabled: false,
@@ -95,19 +102,29 @@ impl PythonBackend {
     }
 
     /// Get possible paths for the Python module.
-    fn get_python_paths() -> Vec<&'static str> {
-        vec![
-            // Development paths (relative to CWD)
-            "python",
-            "./python",
-            "../python",
-            // Library paths (relative to radar-core)
-            "libs/radar-core/python",
-            "../libs/radar-core/python",
-            "../../libs/radar-core/python",
+    fn get_python_paths() -> Vec<String> {
+        let mut paths = vec![];
+
+        // Check environment variable first (set by Nix package or user)
+        if let Ok(env_path) = std::env::var("RADAR_BACKEND_PATH") {
+            paths.push(env_path);
+        }
+
+        // Development paths (relative to CWD at various depths)
+        paths.extend([
+            "python".to_string(),
+            "./python".to_string(),
+            "../python".to_string(),
+            // Library paths (relative to repo root)
+            "libs/radar-core/python".to_string(),
+            "../libs/radar-core/python".to_string(),
+            "../../libs/radar-core/python".to_string(),
+            "../../../libs/radar-core/python".to_string(),
             // Deployed location (Nix package)
-            "/opt/phaser/lib/python",
-        ]
+            "/opt/phaser/lib/python".to_string(),
+        ]);
+
+        paths
     }
 
     /// Capture a frame from the data source.
@@ -137,12 +154,51 @@ impl PythonBackend {
         })
     }
 
-    /// Get frame dimensions.
+    /// Get frame dimensions (sliced to display range).
     pub fn dimensions(&self) -> FrameDimensions {
         FrameDimensions {
             n_doppler: self.n_doppler as u32,
             n_range: self.n_range as u32,
         }
+    }
+
+    /// Get full-resolution frame dimensions.
+    pub fn dimensions_full(&self) -> FrameDimensions {
+        FrameDimensions {
+            n_doppler: self.n_doppler as u32,
+            n_range: self.n_range_full as u32,
+        }
+    }
+
+    /// Capture a full-resolution frame from the data source.
+    ///
+    /// Returns a 2D array of values, shape (n_doppler, n_range_full).
+    /// This is useful for web visualization where client-side zoom is desired.
+    pub fn capture_full(&mut self) -> Result<Array2<f32>, RadarError> {
+        Python::with_gil(|py| {
+            // Call get_frame_full_resolution() on the Python backend
+            let frame = self
+                .py_backend
+                .bind(py)
+                .call_method0("get_frame_full_resolution")?;
+
+            // Convert numpy array to Rust ndarray
+            let numpy = py.import_bound("numpy")?;
+            let frame_np = frame.call_method1("astype", (numpy.getattr("float32")?,))?;
+
+            // Get shape
+            let shape: (usize, usize) = frame_np.getattr("shape")?.extract()?;
+
+            // Get data as flat list and convert to Array2
+            let flat: Vec<f32> = frame_np
+                .call_method0("flatten")?
+                .call_method0("tolist")?
+                .extract()?;
+
+            let array = Array2::from_shape_vec((shape.0, shape.1), flat)?;
+
+            Ok(array)
+        })
     }
 
     /// Get minimum scale value.

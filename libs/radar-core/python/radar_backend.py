@@ -872,6 +872,150 @@ class RadarBackend:
         """Return (n_doppler, n_range) dimensions of output frames."""
         return (self.n_doppler, self.n_range)
 
+    def get_dimensions_full(self) -> Tuple[int, int]:
+        """Return (n_doppler, n_range_full) dimensions for full-resolution frames."""
+        return (self.n_doppler, self.n_range_full)
+
+    def get_frame_full_resolution(self) -> np.ndarray:
+        """
+        Get full-resolution frame without range slicing.
+        
+        Returns:
+            2D numpy array of shape (n_doppler, n_range_full) where n_range_full
+            is typically 1800 bins covering the full unambiguous range (~54m).
+            Values are in log10 scale [min_scale, max_scale].
+            
+        This is useful for web visualization where client-side zoom is desired,
+        allowing users to explore the full range without re-acquiring data.
+        """
+        if self.mode == 'hardware':
+            return self._get_hardware_frame_full()
+        else:
+            return self._get_synthetic_frame_full()
+
+    def _get_hardware_frame_full(self) -> np.ndarray:
+        """Capture and process a full-resolution frame from hardware."""
+        if not self._hardware_initialized:
+            raise RuntimeError("Hardware not initialized")
+        
+        # Trigger burst (matching Jon's script)
+        self.phaser._gpios.gpio_burst = 0
+        self.phaser._gpios.gpio_burst = 1
+        self.phaser._gpios.gpio_burst = 0
+        
+        # Capture data
+        data = self.sdr.rx()
+        chan1 = data[0]
+        chan2 = data[1]
+        sum_data = chan1 + chan2
+        
+        # Store raw data for diagnostics
+        self._last_raw_data = sum_data
+        
+        # Reshape into chirps (matching Jon's get_radar_data)
+        rx_bursts = np.zeros((self.num_chirps, self.good_ramp_samples), dtype=complex)
+        for burst in range(self.num_chirps):
+            start_index = self.start_offset_samples + burst * self.n_frame
+            stop_index = start_index + self.good_ramp_samples
+            rx_bursts[burst] = sum_data[start_index:stop_index]
+        
+        # Store reshaped data for diagnostics
+        self._last_rx_bursts = rx_bursts
+        
+        # Apply MTI filter if enabled
+        if self.mti_enabled:
+            rx_bursts = self._apply_mti(rx_bursts)
+        
+        # Process to Range-Doppler map (full resolution, no slicing)
+        rd_map = self._process_to_rd_map_full(rx_bursts)
+        
+        return rd_map
+
+    def _get_synthetic_frame_full(self) -> np.ndarray:
+        """Generate a full-resolution synthetic Range-Doppler frame.
+        
+        Creates a frame at full resolution (n_doppler x n_range_full) with
+        targets positioned appropriately for the full range axis.
+        """
+        # Use log10 scale to match hardware output
+        noise_floor = 1.5
+        rd_map = np.full((self.n_doppler, self.n_range_full), noise_floor, dtype=np.float32)
+        
+        # Add smooth noise variation
+        noise = self._rng.standard_normal((self.n_doppler, self.n_range_full)).astype(np.float32) * 0.3
+        rd_map += noise
+        
+        # Animate time
+        t = self._frame_count * 0.05
+        
+        # Calculate max range for full resolution (approximately 54m with default settings)
+        c = 3e8
+        slope = self.chirp_bw / self.ramp_time_s
+        max_range_full = (self.n_range_full * self.sample_rate / self.n_range_full) * c / (2 * slope) / self.sample_rate
+        # Simplified: use the range_axis to find actual max range
+        max_range_full = abs(self.range_axis[-1] - self.range_axis[0])
+        
+        # Scale factor to map display range fraction to full range
+        range_scale = self.max_range / max_range_full if max_range_full > 0 else 1.0
+        
+        # Add targets as smooth 2D Gaussian peaks (scaled for full range)
+        for target in self._synthetic_targets:
+            # Animate target position - scale range to full resolution
+            range_frac_full = target['range_frac'] * range_scale
+            range_center = range_frac_full * self.n_range_full + np.sin(t * target['velocity'] * 8) * 30
+            doppler_center = target['doppler_frac'] * self.n_doppler + np.sin(t * 0.3 + target['velocity']) * 15
+            
+            # Create coordinate grids
+            r_idx = np.arange(self.n_range_full)
+            d_idx = np.arange(self.n_doppler)
+            R, D = np.meshgrid(r_idx, d_idx)
+            
+            # Scale sigma for full resolution
+            range_sigma = target['range_sigma'] * (self.n_range_full / self.n_range)
+            
+            # Gaussian blob
+            range_dist = (R - range_center) / range_sigma
+            doppler_dist = (D - doppler_center) / target['doppler_sigma']
+            dist_sq = range_dist**2 + doppler_dist**2
+            
+            gauss = np.exp(-0.5 * dist_sq)
+            target_log10 = (target['amp_db'] + 70) / 10
+            target_contribution = (target_log10 - noise_floor) * gauss
+            
+            rd_map = np.maximum(rd_map, noise_floor + target_contribution)
+        
+        # Clip to display range
+        rd_map = np.clip(rd_map, self.min_scale, self.max_scale)
+        
+        self._frame_count += 1
+        
+        return rd_map.astype(np.float32)
+
+    def _process_to_rd_map_full(self, rx_bursts) -> np.ndarray:
+        """
+        Process IQ data to full-resolution Range-Doppler map.
+        
+        Unlike _process_to_rd_map(), this returns the full range axis without slicing.
+        Shape: (n_doppler, n_range_full) - typically (512, 1800).
+        """
+        data_gpu = to_gpu(rx_bursts)
+        
+        # 2D FFT with shift
+        rx_bursts_fft = xp.fft.fftshift(xp.abs(xp.fft.fft2(data_gpu)))
+        
+        # Convert to log10 scale (matching Jon's script exactly - NOT dB!)
+        range_doppler_data = xp.log10(xp.maximum(rx_bursts_fft, 1e-12))
+        
+        # NO range slicing - return full resolution
+        
+        # Clip to display range (matching Jon's script)
+        range_doppler_data = xp.clip(range_doppler_data, self.min_scale, self.max_scale)
+        
+        if GPU_AVAILABLE:
+            cp.cuda.Stream.null.synchronize()
+        
+        return to_cpu(range_doppler_data).astype(np.float32)
+
     def get_config(self) -> Dict:
         """Return current configuration as dictionary."""
         config = {

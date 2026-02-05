@@ -18,9 +18,9 @@ The library uses a hybrid Rust/Python architecture where Rust provides type safe
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Your Rust Application                         │
+│                    Your Rust Application                        │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                    radar-core                             │   │
+│  │                    radar-core                            │   │
 │  │  ┌────────────┐  ┌────────────┐  ┌────────────────────┐  │   │
 │  │  │ RadarConfig│  │ RadarFrame │  │   RadarSource      │  │   │
 │  │  │ RadarMode  │  │ FrameData  │  │   (PyO3 bridge)    │  │   │
@@ -31,15 +31,15 @@ The library uses a hybrid Rust/Python architecture where Rust provides type safe
 └───────────────────────────────────────────────┼─────────────────┘
                                                 │
 ┌───────────────────────────────────────────────┼─────────────────┐
-│              Python Radar Backend             │                  │
+│              Python Radar Backend             │                 │
 │  ┌────────────────────────────────────────────┴───────────────┐ │
-│  │                    radar_backend.py                         │ │
+│  │                    radar_backend.py                        │ │
 │  │  ┌──────────────┐  ┌──────────────┐                        │ │
 │  │  │ HardwareMode │  │ SyntheticMode│                        │ │
 │  │  │  (pyadi-iio) │  │  (NumPy/CuPy)│                        │ │
 │  │  └──────┬───────┘  └──────┬───────┘                        │ │
 │  │         └────────┬────────┘                                │ │
-│  │                  ▼                                          │ │
+│  │                  ▼                                         │ │
 │  │         GPU Processing (CuPy)                              │ │
 │  │         - 2D FFT                                           │ │
 │  │         - MTI Filter                                       │ │
