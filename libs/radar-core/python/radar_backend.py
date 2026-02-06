@@ -936,7 +936,15 @@ class RadarBackend:
         
         Creates a frame at full resolution (n_doppler x n_range_full) with
         targets positioned appropriately for the full range axis.
+        If a test pattern is set, generates that pattern instead of animated targets.
         """
+        if self._test_pattern != 'animated':
+            return self._get_test_pattern_frame_full()
+        
+        return self._get_animated_frame_full()
+
+    def _get_animated_frame_full(self) -> np.ndarray:
+        """Generate an animated full-resolution frame with moving targets."""
         # Use log10 scale to match hardware output
         noise_floor = 1.5
         rd_map = np.full((self.n_doppler, self.n_range_full), noise_floor, dtype=np.float32)
@@ -989,6 +997,179 @@ class RadarBackend:
         
         self._frame_count += 1
         
+        return rd_map.astype(np.float32)
+
+    def _get_test_pattern_frame_full(self) -> np.ndarray:
+        """Generate a full-resolution test pattern frame for visual validation.
+        
+        Same patterns as _get_test_pattern_frame() but at full resolution
+        (n_doppler x n_range_full).
+        """
+        n_range = self.n_range_full  # Use full resolution
+        
+        # Start with a dark background
+        rd_map = np.full((self.n_doppler, n_range), self.min_scale, dtype=np.float32)
+        
+        if self._test_pattern == 'corner_dots':
+            # Place bright regions at corners with different intensities
+            radius_d = max(20, self.n_doppler // 7)
+            radius_r = max(50, n_range // 7)
+            
+            corners = [
+                (0, 0, 0.6),
+                (0, n_range - 1, 0.7),
+                (self.n_doppler - 1, 0, 0.8),
+                (self.n_doppler - 1, n_range - 1, 1.0),
+            ]
+            
+            for d_corner, r_corner, val in corners:
+                for d in range(max(0, d_corner - radius_d), min(self.n_doppler, d_corner + radius_d + 1)):
+                    for r in range(max(0, r_corner - radius_r), min(n_range, r_corner + radius_r + 1)):
+                        d_dist = abs(d - d_corner) / max(1, radius_d)
+                        r_dist = abs(r - r_corner) / max(1, radius_r)
+                        dist = np.sqrt(d_dist**2 + r_dist**2)
+                        if dist <= 1.0:
+                            intensity = (1.0 - dist) * val
+                            rd_map[d, r] = max(rd_map[d, r],
+                                              self.min_scale + intensity * (self.max_scale - self.min_scale))
+        
+        elif self._test_pattern == 'gradient_h':
+            # Horizontal gradient
+            for r in range(n_range):
+                val = self.min_scale + (r / max(1, n_range - 1)) * (self.max_scale - self.min_scale)
+                rd_map[:, r] = val
+        
+        elif self._test_pattern == 'gradient_v':
+            # Vertical gradient
+            for d in range(self.n_doppler):
+                val = self.min_scale + (d / max(1, self.n_doppler - 1)) * (self.max_scale - self.min_scale)
+                rd_map[d, :] = val
+        
+        elif self._test_pattern == 'center_target':
+            # Single bright Gaussian blob at the center
+            cx = n_range // 2
+            cy = self.n_doppler // 2
+            sigma_r = max(20, n_range // 20)
+            sigma_d = max(20, self.n_doppler // 20)
+            
+            r_idx = np.arange(n_range)
+            d_idx = np.arange(self.n_doppler)
+            R, D = np.meshgrid(r_idx, d_idx)
+            
+            gauss = np.exp(-0.5 * (((R - cx) / sigma_r)**2 + ((D - cy) / sigma_d)**2))
+            rd_map = self.min_scale + gauss * (self.max_scale - self.min_scale)
+        
+        elif self._test_pattern == 'grid':
+            # Regular grid pattern
+            n_lines = 5
+            
+            # Vertical lines (constant range)
+            line_width_r = max(5, n_range // 50)
+            for i in range(n_lines):
+                r = int((i + 0.5) * n_range / n_lines)
+                r_start = max(0, r - line_width_r // 2)
+                r_end = min(n_range, r + line_width_r // 2 + 1)
+                rd_map[:, r_start:r_end] = self.max_scale
+            
+            # Horizontal lines (constant Doppler)
+            line_width_d = max(5, self.n_doppler // 50)
+            for i in range(n_lines):
+                d = int((i + 0.5) * self.n_doppler / n_lines)
+                d_start = max(0, d - line_width_d // 2)
+                d_end = min(self.n_doppler, d + line_width_d // 2 + 1)
+                rd_map[d_start:d_end, :] = self.max_scale
+        
+        elif self._test_pattern == 'diagonal':
+            # Diagonal line from bottom-left to top-right
+            line_width_r = max(5, n_range // 30)
+            line_width_d = max(10, self.n_doppler // 30)
+            
+            for d in range(self.n_doppler):
+                r_center = int(d * n_range / self.n_doppler)
+                for rr in range(max(0, r_center - line_width_r), min(n_range, r_center + line_width_r + 1)):
+                    for dd_offset in range(-line_width_d // 2, line_width_d // 2 + 1):
+                        dd_idx = d + dd_offset
+                        if 0 <= dd_idx < self.n_doppler:
+                            rd_map[dd_idx, rr] = self.max_scale
+        
+        elif self._test_pattern == 'checkerboard':
+            # Checkerboard pattern
+            cells_r = 8
+            cells_d = 4
+            cell_width = max(1, n_range // cells_r)
+            cell_height = max(1, self.n_doppler // cells_d)
+            
+            for d in range(self.n_doppler):
+                for r in range(n_range):
+                    cell_r = r // cell_width
+                    cell_d = d // cell_height
+                    if (cell_r + cell_d) % 2 == 0:
+                        rd_map[d, r] = self.max_scale
+                    else:
+                        rd_map[d, r] = self.min_scale
+        
+        elif self._test_pattern == 'hb100_stationary':
+            # Simulate HB100 at ~3m, stationary (zero Doppler)
+            range_bin = int(3.0 / abs(self.range_axis[-1] - self.range_axis[0]) * n_range) if len(self.range_axis) > 1 else n_range // 3
+            doppler_bin = self.n_doppler // 2
+            
+            sigma_r = max(20, n_range // 50)
+            sigma_d = max(10, self.n_doppler // 30)
+            
+            r_idx = np.arange(n_range)
+            d_idx = np.arange(self.n_doppler)
+            R, D = np.meshgrid(r_idx, d_idx)
+            
+            gauss = np.exp(-0.5 * (((R - range_bin) / sigma_r)**2 + ((D - doppler_bin) / sigma_d)**2))
+            rd_map = self.min_scale + gauss * (self.max_scale - self.min_scale) * 0.9
+            
+            # Add some noise
+            noise = self._rng.standard_normal((self.n_doppler, n_range)).astype(np.float32) * 0.2
+            rd_map += noise
+            rd_map = np.clip(rd_map, self.min_scale, self.max_scale)
+        
+        elif self._test_pattern == 'hb100_walking':
+            # Simulate HB100 moving toward the radar (walking speed ~1.5 m/s)
+            range_bin = int(3.0 / abs(self.range_axis[-1] - self.range_axis[0]) * n_range) if len(self.range_axis) > 1 else n_range // 3
+            doppler_offset = int(self.n_doppler * 0.15)
+            doppler_bin = self.n_doppler // 2 + doppler_offset
+            
+            sigma_r = max(20, n_range // 50)
+            sigma_d = max(10, self.n_doppler // 30)
+            
+            r_idx = np.arange(n_range)
+            d_idx = np.arange(self.n_doppler)
+            R, D = np.meshgrid(r_idx, d_idx)
+            
+            gauss = np.exp(-0.5 * (((R - range_bin) / sigma_r)**2 + ((D - doppler_bin) / sigma_d)**2))
+            rd_map = self.min_scale + gauss * (self.max_scale - self.min_scale) * 0.9
+            
+            # Add some noise
+            noise = self._rng.standard_normal((self.n_doppler, n_range)).astype(np.float32) * 0.2
+            rd_map += noise
+            rd_map = np.clip(rd_map, self.min_scale, self.max_scale)
+        
+        elif self._test_pattern == 'dc_leakage':
+            # Simulate DC leakage - bright line at zero Doppler
+            dc_bin = self.n_doppler // 2
+            dc_width = max(5, self.n_doppler // 50)
+            
+            for d in range(max(0, dc_bin - dc_width), min(self.n_doppler, dc_bin + dc_width + 1)):
+                d_dist = abs(d - dc_bin) / max(1, dc_width)
+                intensity = 1.0 - d_dist
+                rd_map[d, :] = self.min_scale + intensity * (self.max_scale - self.min_scale) * 0.8
+            
+            # Brighter at near range
+            for r in range(n_range):
+                r_factor = 1.0 - (r / n_range) * 0.5
+                rd_map[:, r] *= r_factor
+            
+            # Add noise
+            noise = self._rng.standard_normal((self.n_doppler, n_range)).astype(np.float32) * 0.15
+            rd_map += noise
+            rd_map = np.clip(rd_map, self.min_scale, self.max_scale)
+        
+        self._frame_count += 1
         return rd_map.astype(np.float32)
 
     def _process_to_rd_map_full(self, rx_bursts) -> np.ndarray:

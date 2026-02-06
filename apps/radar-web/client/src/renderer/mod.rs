@@ -191,13 +191,23 @@ impl Renderer {
     }
 
     /// Update the radar texture with new frame data.
+    ///
+    /// Data is row-major: n_doppler rows of n_range columns.
+    /// GPU texture: width = n_range (columns), height = n_doppler (rows).
     pub fn update_texture(&mut self, data: &[u8], n_doppler: usize, n_range: usize) {
+        // Texture width = n_range (columns per row), height = n_doppler (number of rows)
+        let tex_width = n_range as u32;
+        let tex_height = n_doppler as u32;
+
         // Resize texture if dimensions changed
-        if n_doppler != self.radar_texture.width as usize
-            || n_range != self.radar_texture.height as usize
+        if tex_width != self.radar_texture.width
+            || tex_height != self.radar_texture.height
         {
-            log::info!("Resizing texture to {}x{}", n_doppler, n_range);
-            self.radar_texture = RadarTexture::new(&self.device, n_doppler as u32, n_range as u32);
+            log::info!(
+                "Resizing texture to {}x{} ({}R x {}D)",
+                tex_width, tex_height, n_range, n_doppler
+            );
+            self.radar_texture = RadarTexture::new(&self.device, tex_width, tex_height);
             self.recreate_bind_group();
         }
 
@@ -294,6 +304,7 @@ impl Renderer {
     }
 
     /// Update uniforms.
+    #[allow(dead_code)] // Public API for direct uniform control
     pub fn set_uniforms(&mut self, uniforms: Uniforms) {
         self.uniforms = uniforms;
         self.queue
@@ -332,6 +343,7 @@ impl Renderer {
     }
 
     /// Get current pan offset.
+    #[allow(dead_code)] // Public API for reading pan state
     pub fn pan(&self) -> (f32, f32) {
         (self.uniforms.pan_x, self.uniforms.pan_y)
     }

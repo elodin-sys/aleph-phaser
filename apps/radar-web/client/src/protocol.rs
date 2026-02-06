@@ -7,6 +7,7 @@
 ///
 /// Must match the layout in libs/radar-core/src/protocol.rs.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Fields are part of protocol spec, used for parsing
 pub struct FrameHeader {
     /// Message type (0x01 = radar_frame).
     pub message_type: u8,
@@ -39,12 +40,15 @@ impl FrameHeader {
     pub const SIZE: usize = 32;
 
     /// Message type for radar frames.
+    #[allow(dead_code)] // Protocol constant for validation
     pub const MESSAGE_TYPE_RADAR_FRAME: u8 = 0x01;
 
     /// Frame type for range-Doppler maps.
+    #[allow(dead_code)] // Protocol constant for validation
     pub const FRAME_TYPE_RANGE_DOPPLER: u8 = 0x00;
 
     /// Flag bit for MTI enabled.
+    #[allow(dead_code)] // Protocol constant for validation
     pub const FLAG_MTI_ENABLED: u8 = 0x01;
 
     /// Parse header from a byte slice.
@@ -71,6 +75,7 @@ impl FrameHeader {
     }
 
     /// Check if MTI is enabled in flags.
+    #[allow(dead_code)] // Available for future use
     pub fn mti_enabled(&self) -> bool {
         self.flags & Self::FLAG_MTI_ENABLED != 0
     }

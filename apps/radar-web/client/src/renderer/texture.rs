@@ -80,6 +80,7 @@ impl RadarTexture {
 
 /// Colormap lookup texture (1D RGBA).
 pub struct ColormapTexture {
+    #[allow(dead_code)] // Kept alive for GPU resource lifetime
     pub texture: Texture,
     pub view: TextureView,
     pub sampler: Sampler,

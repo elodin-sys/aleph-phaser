@@ -142,6 +142,7 @@ impl FrameClient {
     }
 
     /// Get current connection state.
+    #[allow(dead_code)] // Public API for checking connection status
     pub fn state(&self) -> ConnectionState {
         *self.state.borrow()
     }
