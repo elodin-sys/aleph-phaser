@@ -135,10 +135,10 @@
       };
       
       # Radar Web application (WebGPU visualization server)
-      # Includes WASM client built with wasm-pack
+      # Includes WASM client built with cargo + wasm-bindgen
       radar-web = final.callPackage ./nix/pkgs/radar-web.nix {
         workspaceSrc = ./.;
-        inherit (final) rust-bin makeRustPlatform wasm-pack wasm-bindgen-cli binaryen;
+        inherit (final) rust-bin makeRustPlatform wasm-bindgen-cli binaryen;
       };
     };
     
@@ -160,6 +160,7 @@
         
         # Import our custom modules
         ./nix/modules/plutosdr.nix
+        ./nix/modules/radar-web.nix
       ];
 
       # overlays required to get elodin and nvidia packages
@@ -182,6 +183,14 @@
         users = [ "aleph-phaser" ];  # Add our user to plugdev/dialout groups
         enableGnuRadio = true; # long build time and heavy dependencies
         enableGpuDemos = true; # Enable GPU-accelerated radar demos
+      };
+
+      # Optional: radar-web server (WebGPU visualization on :8080)
+      services.radar-web = {
+        enable = true;
+        mode = "hardware";
+        sdrUri = "ip:192.168.2.1";
+        phaserUri = "ip:192.168.4.184";
       };
 
       # Additional system packages for Phaser development
@@ -214,6 +223,8 @@
         
         # TUI Radar application
         tui-radar
+        # Radar Web (also started by services.radar-web when enabled)
+        radar-web
       ];
 
       users.users.aleph-phaser = {

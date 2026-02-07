@@ -5,7 +5,7 @@
 #
 # This package:
 # 1. Builds the Axum server (radar-web) from the Cargo workspace
-# 2. Builds the WASM client (radar-web-client) with wasm-pack
+# 2. Builds the WASM client (radar-web-client) with cargo + wasm-bindgen
 # 3. Bundles the WASM artifacts into static/ for serving
 #
 # Usage:
@@ -19,7 +19,6 @@
 , python3
 , makeWrapper
 , workspaceSrc
-, wasm-pack
 , wasm-bindgen-cli
 , binaryen
 }:
@@ -51,8 +50,7 @@ rustPlatform.buildRustPackage {
     pkg-config 
     python3         # Needed for PyO3 build script
     makeWrapper     # For wrapping the binary with env vars
-    wasm-pack       # For building WASM client
-    wasm-bindgen-cli
+    wasm-bindgen-cli  # For generating JS bindings from WASM
     binaryen        # For wasm-opt optimization
   ];
   
@@ -63,34 +61,49 @@ rustPlatform.buildRustPackage {
   # Set Python path for PyO3 build
   PYO3_PYTHON = "${python3}/bin/python3";
 
-  # Build WASM client after main cargo build
+  # Build WASM client using cargo + wasm-bindgen directly.
+  # We do NOT use wasm-pack because it tries to download wasm-bindgen-cli and
+  # write to $HOME/.cache, both of which fail in a Nix sandbox.
   postBuild = ''
     echo "Building WASM client..."
-    cd apps/radar-web/client
-    
-    # Build in release mode
-    wasm-pack build --target web --release --out-dir pkg
-    
+
+    # Build WASM target with cargo (deps already vendored by buildRustPackage)
+    export CARGO_TARGET_DIR="''$TMPDIR/wasm-target"
+    cargo build \
+      -p radar-web-client \
+      --target wasm32-unknown-unknown \
+      --release \
+      --offline
+
+    # Generate JS bindings with wasm-bindgen CLI
+    mkdir -p "''$TMPDIR/wasm-pkg"
+    wasm-bindgen \
+      --target web \
+      --out-dir "''$TMPDIR/wasm-pkg" \
+      "''$TMPDIR/wasm-target/wasm32-unknown-unknown/release/radar_web_client.wasm"
+
     # Optimize WASM binary
-    ${binaryen}/bin/wasm-opt -Oz pkg/radar_web_client_bg.wasm -o pkg/radar_web_client_bg.wasm
-    
-    cd ../../..
+    ${binaryen}/bin/wasm-opt -Oz \
+      "''$TMPDIR/wasm-pkg/radar_web_client_bg.wasm" \
+      -o "''$TMPDIR/wasm-pkg/radar_web_client_bg.wasm"
   '';
 
   # Install the server, WASM client, and Python backend
   postInstall = ''
-    # Copy WASM artifacts to static directory
+    # Copy WASM artifacts from $TMPDIR (same build, path still valid)
     mkdir -p $out/share/radar-web/static
     cp apps/radar-web/static/index.html $out/share/radar-web/static/
-    cp apps/radar-web/client/pkg/radar_web_client.js $out/share/radar-web/static/
-    cp apps/radar-web/client/pkg/radar_web_client_bg.wasm $out/share/radar-web/static/
+    cp "''$TMPDIR/wasm-pkg/radar_web_client.js" $out/share/radar-web/static/
+    cp "''$TMPDIR/wasm-pkg/radar_web_client_bg.wasm" $out/share/radar-web/static/
     
     # Copy Python backend
     mkdir -p $out/lib/python
     cp ${workspaceSrc}/libs/radar-core/python/*.py $out/lib/python/
   '';
 
-  # Set up runtime environment
+  # Set up runtime environment.
+  # Do not set PYTHONHOME here: when run as a systemd service (nix/modules/radar-web.nix),
+  # the service sets PYTHONHOME to a full Python env with numpy, pyadi-iio, paramiko.
   postFixup = ''
     wrapProgram $out/bin/radar-web \
       --set RADAR_BACKEND_PATH "$out/lib/python" \
