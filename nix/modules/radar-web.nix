@@ -22,6 +22,7 @@ let
     "--host" "0.0.0.0"
     "--port" (toString cfg.port)
     "--fps" (toString cfg.fps)
+    "--num-chirps" (toString cfg.numChirps)
   ];
 in {
   options.services.radar-web = {
@@ -55,6 +56,12 @@ in {
       type = types.int;
       default = 20;
       description = "Target frame rate (conservative for Aleph)";
+    };
+
+    numChirps = mkOption {
+      type = types.int;
+      default = 256;
+      description = "Number of chirps per frame (Doppler bins). More chirps = finer velocity resolution but slower capture. 128-512 typical.";
     };
   };
 

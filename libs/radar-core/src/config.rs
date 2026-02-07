@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = RadarConfig::default();
-        assert_eq!(config.n_doppler, 512);
+        assert_eq!(config.n_doppler, 256);
         assert_eq!(config.mode, RadarMode::Synthetic);
         assert_eq!(config.sample_rate, 4_000_000);
     }

@@ -40,6 +40,10 @@ struct Args {
     /// Target frame rate in FPS
     #[arg(long, default_value = "30")]
     fps: u32,
+
+    /// Number of chirps per frame (Doppler bins). More = finer velocity resolution but slower capture.
+    #[arg(long, default_value = "256")]
+    num_chirps: usize,
 }
 
 #[tokio::main]
@@ -53,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // Build radar config
-    let radar_config = if args.synthetic {
+    let mut radar_config = if args.synthetic {
         info!("Starting in synthetic data mode");
         RadarConfig::synthetic(TestPattern::Animated)
     } else {
@@ -64,6 +68,8 @@ async fn main() -> anyhow::Result<()> {
         info!("Connecting to hardware: SDR={}, Phaser={}", sdr_uri, phaser_uri);
         RadarConfig::hardware(&sdr_uri, &phaser_uri)
     };
+    radar_config.n_doppler = args.num_chirps;
+    info!("Chirps per frame (Doppler bins): {}", radar_config.n_doppler);
 
     let server_config = ServerConfig {
         host: args.host,

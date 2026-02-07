@@ -192,6 +192,7 @@
         mode = "hardware";
         sdrUri = "ip:192.168.2.1";
         phaserUri = "ip:192.168.4.184";
+        numChirps = 256;  # Doppler bins: 128=fast/~2FPS, 256=balanced/~1.3FPS, 512=full-res/~0.7FPS
       };
 
       # Additional system packages for Phaser development
