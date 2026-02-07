@@ -6,7 +6,7 @@ mod websocket;
 
 use crate::config::ServerConfig;
 use axum::Router;
-use radar_core::RadarConfig;
+use radar_core::{EncodedFrame, RadarConfig, RadarFrame};
 use std::net::SocketAddr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -27,8 +27,8 @@ pub async fn run(radar_config: Arc<RadarConfig>, config: ServerConfig) -> anyhow
 
     // Command channel: async handlers -> acquisition thread (sync, non-blocking try_send)
     let (command_tx, command_rx) = mpsc::sync_channel(32);
-    // Frame channel: acquisition thread -> tokio (blocking recv in spawn_blocking)
-    let (frame_tx, frame_rx) = mpsc::sync_channel(16);
+    // Frame channel: acquisition thread sends raw RadarFrame; receiver encodes and broadcasts (pipelining)
+    let (frame_tx, frame_rx) = mpsc::sync_channel::<RadarFrame>(16);
     let frame_rx = Arc::new(Mutex::new(frame_rx));
 
     // Start acquisition on dedicated thread (RadarSource is !Send)
@@ -40,23 +40,24 @@ pub async fn run(radar_config: Arc<RadarConfig>, config: ServerConfig) -> anyhow
         config.frame_interval_ms,
     );
 
-    // Task: receive frames from thread (blocking recv in spawn_blocking) and broadcast
+    // Task: receive raw frames, encode, then broadcast (encode overlaps with next capture)
     let frame_broadcast_for_receiver = frame_broadcast.clone();
     tokio::spawn(async move {
         loop {
-            let bytes = match tokio::task::spawn_blocking({
+            let frame = match tokio::task::spawn_blocking({
                 let frame_rx = Arc::clone(&frame_rx);
                 move || frame_rx.lock().unwrap().recv()
             })
             .await
             {
-                Ok(Ok(b)) => b,
+                Ok(Ok(f)) => f,
                 Ok(Err(_)) => break,
                 Err(e) => {
                     tracing::warn!("Frame receiver task join error: {}", e);
                     break;
                 }
             };
+            let bytes = Arc::new(EncodedFrame::from_frame(&frame).to_bytes());
             if frame_broadcast_for_receiver.receiver_count() > 0 {
                 let _ = frame_broadcast_for_receiver.send(bytes);
             }

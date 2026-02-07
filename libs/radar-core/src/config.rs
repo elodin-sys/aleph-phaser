@@ -72,7 +72,7 @@ impl Default for RadarConfig {
             sdr_uri: "ip:192.168.2.1".to_string(),
             phaser_uri: "ip:192.168.4.184".to_string(),
             sample_rate: 4_000_000,
-            n_doppler: 512,
+            n_doppler: 256,
             ramp_time_us: 500,
             chirp_bw: 500_000_000.0,
             center_freq: 2_100_000_000,

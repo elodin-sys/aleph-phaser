@@ -8,7 +8,7 @@
 //! due to PyO3) and sends frames over a channel; a tokio task receives and
 //! broadcasts so the async runtime is not blocked by Python/GIL.
 
-use radar_core::{EncodedFrame, RadarConfig, RadarSource, TestPattern};
+use radar_core::{RadarConfig, RadarSource, RadarFrame, TestPattern};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
@@ -168,11 +168,12 @@ pub type CommandSender = mpsc::SyncSender<RadarCommand>;
 
 /// Runs the frame acquisition loop on a dedicated std::thread.
 /// RadarSource is !Send (PyO3), so it cannot be moved into spawn_blocking.
-/// This thread owns the radar and sends encoded frames via frame_tx.
+/// This thread owns the radar and sends raw frames via frame_tx; encoding runs on the receiver
+/// so capture N+1 can overlap with encode/send of frame N (pipelining).
 pub fn run_acquisition_thread(
     config: Arc<RadarConfig>,
     command_rx: mpsc::Receiver<RadarCommand>,
-    frame_tx: mpsc::SyncSender<Arc<Vec<u8>>>,
+    frame_tx: mpsc::SyncSender<RadarFrame>,
     state_broadcast: StateBroadcast,
     interval_ms: u32,
 ) {
@@ -185,7 +186,7 @@ pub fn run_acquisition_thread(
 fn acquisition_loop_sync(
     config: Arc<RadarConfig>,
     command_rx: mpsc::Receiver<RadarCommand>,
-    frame_tx: mpsc::SyncSender<Arc<Vec<u8>>>,
+    frame_tx: mpsc::SyncSender<RadarFrame>,
     state_broadcast: StateBroadcast,
     interval_ms: u32,
 ) {
@@ -211,9 +212,9 @@ fn acquisition_loop_sync(
     #[allow(unused_assignments)]
     let mut last_capture_ms: Option<f64> = None;
     #[allow(unused_assignments)]
-    let mut last_encode_ms: Option<f64> = None;
-    #[allow(unused_assignments)]
     let mut last_total_ms: Option<f64> = None;
+    #[allow(unused_assignments)]
+    let mut last_frame_data_len: Option<usize> = None;
     let mut paused = false;
 
     let is_synthetic = radar.is_synthetic();
@@ -254,23 +255,21 @@ fn acquisition_loop_sync(
                     }
                 };
                 let t1 = Instant::now();
-                let encoded = EncodedFrame::from_frame(&frame);
-                let bytes = Arc::new(encoded.to_bytes());
-                let t2 = Instant::now();
                 last_capture_ms = Some(t1.duration_since(t0).as_secs_f64() * 1000.0);
-                last_encode_ms = Some(t2.duration_since(t1).as_secs_f64() * 1000.0);
-                last_total_ms = Some(t2.duration_since(t0).as_secs_f64() * 1000.0);
-                if frame_tx.send(bytes).is_err() {
+                last_frame_data_len = Some(frame.dimensions.total_samples() * 4);
+                // Send raw frame so receiver can encode while we start next capture (pipelining)
+                if frame_tx.send(frame).is_err() {
                     break;
                 }
                 frame_count += 1;
+                last_total_ms = Some(t1.duration_since(t0).as_secs_f64() * 1000.0);
                 if last_log.elapsed() > Duration::from_secs(5) {
                     let fps = frame_count as f64 / last_log.elapsed().as_secs_f64();
                     info!(
                         capture_ms = last_capture_ms.unwrap_or(0.0),
-                        encode_ms = last_encode_ms.unwrap_or(0.0),
                         total_ms = last_total_ms.unwrap_or(0.0),
-                        "Frame stats: {} frames, {:.1} FPS",
+                        frame_data_bytes = last_frame_data_len.unwrap_or(0),
+                        "Frame stats: {} frames, {:.1} FPS (encode on receiver)",
                         frame_count, fps
                     );
                     frame_count = 0;

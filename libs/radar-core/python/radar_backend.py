@@ -167,6 +167,8 @@ class RadarBackend:
         self._gpu_status_logged = False
         self._last_raw_data = None
         self._last_rx_bursts = None
+        # Pre-allocated GPU buffer for rx_bursts (reused each frame to avoid allocator churn)
+        self._gpu_rx_buf = None
         
         # Synthetic state
         self._frame_count = 0
@@ -264,6 +266,13 @@ class RadarBackend:
             buffer_size = min(buffer_size, 2**22)
             self.sdr.rx_buffer_size = buffer_size
             self.buffer_size = buffer_size
+            # No stale DMA buffers: single kernel buffer for lowest latency (see beamforming-example, aleph_minimal_example)
+            self.sdr._rxadc.set_kernel_buffers_count(1)
+            buffer_time_ms = buffer_size / self.sample_rate * 1000
+            print(
+                f"RadarBackend: buffer_size={buffer_size} total_time_ms={total_time_ms:.1f} buffer_time_ms={buffer_time_ms:.1f}",
+                flush=True,
+            )
             
             # Calculate start offset
             self.start_offset_time = self.tdd.channel[0].on_ms / 1e3 + self.begin_offset_time
@@ -278,6 +287,9 @@ class RadarBackend:
             q = np.sin(2 * np.pi * t * fc) * 2**14
             iq = 0.9 * (i + 1j * q)
             self.sdr.tx([iq, iq])
+            # Note: warmup rx() is not possible in TDD burst mode because rx() blocks until
+            # a GPIO burst trigger fires. With set_kernel_buffers_count(1), stale buffers are
+            # already eliminated so a warmup is unnecessary.
             
             self._hardware_initialized = True
             print("RadarBackend: Hardware initialized successfully")
@@ -405,12 +417,10 @@ class RadarBackend:
         # Store raw data for diagnostics
         self._last_raw_data = sum_data
         
-        # Reshape into chirps (matching Jon's get_radar_data)
-        rx_bursts = np.zeros((self.num_chirps, self.good_ramp_samples), dtype=complex)
-        for burst in range(self.num_chirps):
-            start_index = self.start_offset_samples + burst * self.n_frame
-            stop_index = start_index + self.good_ramp_samples
-            rx_bursts[burst] = sum_data[start_index:stop_index]
+        # Reshape into chirps (vectorized)
+        start_indices = self.start_offset_samples + np.arange(self.num_chirps) * self.n_frame
+        offsets = start_indices[:, np.newaxis] + np.arange(self.good_ramp_samples)
+        rx_bursts = sum_data[offsets].copy()
         
         # Store reshaped data for diagnostics
         self._last_rx_bursts = rx_bursts
@@ -920,29 +930,29 @@ class RadarBackend:
             )
             self._gpu_status_logged = True
         
+        t0 = time.perf_counter()
         # Trigger burst (matching Jon's script)
         self.phaser._gpios.gpio_burst = 0
         self.phaser._gpios.gpio_burst = 1
         self.phaser._gpios.gpio_burst = 0
+        t1 = time.perf_counter()
         
-        t0 = time.perf_counter()
         # Capture data
         data = self.sdr.rx()
+        t2 = time.perf_counter()
         chan1 = data[0]
         chan2 = data[1]
         sum_data = chan1 + chan2
-        t1 = time.perf_counter()
+        t3 = time.perf_counter()
         
         # Store raw data for diagnostics
         self._last_raw_data = sum_data
         
-        # Reshape into chirps (matching Jon's get_radar_data)
-        rx_bursts = np.zeros((self.num_chirps, self.good_ramp_samples), dtype=complex)
-        for burst in range(self.num_chirps):
-            start_index = self.start_offset_samples + burst * self.n_frame
-            stop_index = start_index + self.good_ramp_samples
-            rx_bursts[burst] = sum_data[start_index:stop_index]
-        t2 = time.perf_counter()
+        # Reshape into chirps (vectorized: one indexing op instead of 512-loop)
+        start_indices = self.start_offset_samples + np.arange(self.num_chirps) * self.n_frame
+        offsets = start_indices[:, np.newaxis] + np.arange(self.good_ramp_samples)
+        rx_bursts = sum_data[offsets].copy()
+        t4 = time.perf_counter()
         
         # Store reshaped data for diagnostics
         self._last_rx_bursts = rx_bursts
@@ -951,16 +961,27 @@ class RadarBackend:
         if self.mti_enabled:
             rx_bursts = self._apply_mti(rx_bursts)
         
-        # Process to Range-Doppler map (full resolution, no slicing)
-        rd_map = self._process_to_rd_map_full(rx_bursts)
-        t3 = time.perf_counter()
+        # Process to Range-Doppler map (full resolution, no slicing) with fine-grained timing
+        process_timings = {}
+        rd_map = self._process_to_rd_map_full(rx_bursts, timings=process_timings)
+        t5 = time.perf_counter()
         
-        sdr_ms = (t1 - t0) * 1000
-        reshape_ms = (t2 - t1) * 1000
-        fft_ms = (t3 - t2) * 1000
-        total_ms = (t3 - t0) * 1000
+        gpio_ms = (t1 - t0) * 1000
+        sdr_rx_ms = (t2 - t1) * 1000
+        channel_sum_ms = (t3 - t2) * 1000
+        reshape_ms = (t4 - t3) * 1000
+        process_total_ms = (t5 - t4) * 1000
+        total_ms = (t5 - t0) * 1000
+        to_gpu_ms = process_timings.get("to_gpu_ms", 0)
+        fft_ms = process_timings.get("fft_ms", 0)
+        log10_clip_ms = process_timings.get("log10_clip_ms", 0)
+        sync_ms = process_timings.get("sync_ms", 0)
+        to_cpu_ms = process_timings.get("to_cpu_ms", 0)
+        astype_ms = process_timings.get("astype_ms", 0)
         print(
-            f"RadarBackend timing: sdr_rx_ms={sdr_ms:.2f} reshape_ms={reshape_ms:.2f} fft_ms={fft_ms:.2f} total_ms={total_ms:.2f}",
+            f"RadarBackend timing: gpio_ms={gpio_ms:.3f} sdr_rx_ms={sdr_rx_ms:.2f} channel_sum_ms={channel_sum_ms:.3f} "
+            f"reshape_ms={reshape_ms:.2f} to_gpu_ms={to_gpu_ms:.2f} fft_ms={fft_ms:.2f} log10_clip_ms={log10_clip_ms:.2f} "
+            f"sync_ms={sync_ms:.2f} to_cpu_ms={to_cpu_ms:.2f} astype_ms={astype_ms:.3f} process_total_ms={process_total_ms:.2f} total_ms={total_ms:.2f}",
             flush=True,
         )
         
@@ -1207,30 +1228,52 @@ class RadarBackend:
         self._frame_count += 1
         return rd_map.astype(np.float32)
 
-    def _process_to_rd_map_full(self, rx_bursts) -> np.ndarray:
+    def _process_to_rd_map_full(self, rx_bursts, timings: Optional[Dict] = None):
         """
         Process IQ data to full-resolution Range-Doppler map.
         
         Unlike _process_to_rd_map(), this returns the full range axis without slicing.
         Shape: (n_doppler, n_range_full) - typically (512, 1800).
+        If timings is a dict, it is filled with per-substep ms (to_gpu_ms, fft_ms, etc.).
+        Returns (rd_map, timings) if timings was passed, else rd_map only.
         """
-        data_gpu = to_gpu(rx_bursts)
+        t = {}
+        t0 = time.perf_counter()
+        # Reuse pre-allocated GPU buffer when available to reduce allocator pressure
+        if GPU_AVAILABLE and self._gpu_rx_buf is not None and self._gpu_rx_buf.shape == rx_bursts.shape:
+            self._gpu_rx_buf.set(np.ascontiguousarray(rx_bursts))
+            data_gpu = self._gpu_rx_buf
+        else:
+            data_gpu = to_gpu(rx_bursts)
+            if GPU_AVAILABLE and rx_bursts.shape == (self.num_chirps, self.good_ramp_samples):
+                self._gpu_rx_buf = data_gpu if hasattr(data_gpu, 'get') else cp.asarray(data_gpu)
+        t["to_gpu_ms"] = (time.perf_counter() - t0) * 1000
         
-        # 2D FFT with shift
+        t1 = time.perf_counter()
         rx_bursts_fft = xp.fft.fftshift(xp.abs(xp.fft.fft2(data_gpu)))
+        t["fft_ms"] = (time.perf_counter() - t1) * 1000
         
-        # Convert to log10 scale (matching Jon's script exactly - NOT dB!)
+        t2 = time.perf_counter()
         range_doppler_data = xp.log10(xp.maximum(rx_bursts_fft, 1e-12))
-        
-        # NO range slicing - return full resolution
-        
-        # Clip to display range (matching Jon's script)
         range_doppler_data = xp.clip(range_doppler_data, self.min_scale, self.max_scale)
+        t["log10_clip_ms"] = (time.perf_counter() - t2) * 1000
         
+        t3 = time.perf_counter()
         if GPU_AVAILABLE:
             cp.cuda.Stream.null.synchronize()
+        t["sync_ms"] = (time.perf_counter() - t3) * 1000
         
-        return to_cpu(range_doppler_data).astype(np.float32)
+        t4 = time.perf_counter()
+        out_cpu = to_cpu(range_doppler_data)
+        t["to_cpu_ms"] = (time.perf_counter() - t4) * 1000
+        
+        t5 = time.perf_counter()
+        rd_map = out_cpu.astype(np.float32)
+        t["astype_ms"] = (time.perf_counter() - t5) * 1000
+        
+        if timings is not None:
+            timings.update(t)
+        return rd_map
 
     def get_config(self) -> Dict:
         """Return current configuration as dictionary."""
