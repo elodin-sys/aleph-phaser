@@ -3,13 +3,19 @@
 //! Manages frame acquisition from radar-core and distributes
 //! encoded frames to all connected WebSocket clients.
 //! Also handles bidirectional command/response protocol.
+//!
+//! Frame acquisition runs on a dedicated std::thread (RadarSource is !Send
+//! due to PyO3) and sends frames over a channel; a tokio task receives and
+//! broadcasts so the async runtime is not blocked by Python/GIL.
 
 use radar_core::{EncodedFrame, RadarConfig, RadarSource, TestPattern};
 use serde::{Deserialize, Serialize};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{broadcast, mpsc};
-use tracing::{debug, error, info, warn};
+use std::thread;
+use std::time::{Duration, Instant};
+use tokio::sync::broadcast;
+use tracing::{error, info, warn};
 
 /// Commands that can be sent from clients to the radar acquisition loop.
 #[derive(Debug, Clone, Deserialize)]
@@ -157,24 +163,34 @@ impl StateBroadcast {
     }
 }
 
-/// Command sender handle for WebSocket handlers.
-pub type CommandSender = mpsc::Sender<RadarCommand>;
+/// Command sender for WebSocket handlers (used from async; try_send is non-blocking).
+pub type CommandSender = mpsc::SyncSender<RadarCommand>;
 
-/// Frame acquisition loop.
-///
-/// Continuously captures full-resolution frames from radar-core
-/// and broadcasts them to all connected clients.
-/// Also handles incoming commands via mpsc channel.
-pub async fn acquisition_loop(
+/// Runs the frame acquisition loop on a dedicated std::thread.
+/// RadarSource is !Send (PyO3), so it cannot be moved into spawn_blocking.
+/// This thread owns the radar and sends encoded frames via frame_tx.
+pub fn run_acquisition_thread(
     config: Arc<RadarConfig>,
-    frame_broadcast: FrameBroadcast,
+    command_rx: mpsc::Receiver<RadarCommand>,
+    frame_tx: mpsc::SyncSender<Arc<Vec<u8>>>,
     state_broadcast: StateBroadcast,
-    mut command_rx: mpsc::Receiver<RadarCommand>,
     interval_ms: u32,
 ) {
-    info!("Starting frame acquisition loop");
+    thread::spawn(move || {
+        acquisition_loop_sync(config, command_rx, frame_tx, state_broadcast, interval_ms);
+    });
+}
 
-    // Create radar source
+/// Synchronous acquisition loop (runs on dedicated thread).
+fn acquisition_loop_sync(
+    config: Arc<RadarConfig>,
+    command_rx: mpsc::Receiver<RadarCommand>,
+    frame_tx: mpsc::SyncSender<Arc<Vec<u8>>>,
+    state_broadcast: StateBroadcast,
+    interval_ms: u32,
+) {
+    info!("Starting frame acquisition loop (dedicated thread)");
+
     let mut radar = match RadarSource::new((*config).clone()) {
         Ok(r) => r,
         Err(e) => {
@@ -191,10 +207,15 @@ pub async fn acquisition_loop(
 
     let interval = Duration::from_millis(interval_ms as u64);
     let mut frame_count: u64 = 0;
-    let mut last_log = std::time::Instant::now();
+    let mut last_log = Instant::now();
+    #[allow(unused_assignments)]
+    let mut last_capture_ms: Option<f64> = None;
+    #[allow(unused_assignments)]
+    let mut last_encode_ms: Option<f64> = None;
+    #[allow(unused_assignments)]
+    let mut last_total_ms: Option<f64> = None;
     let mut paused = false;
 
-    // Get initial state
     let is_synthetic = radar.is_synthetic();
     let initial_pattern = if is_synthetic {
         radar.get_test_pattern().map(|p| p.name().to_string()).unwrap_or_default()
@@ -202,7 +223,6 @@ pub async fn acquisition_loop(
         String::new()
     };
 
-    // Broadcast initial state
     let (scale_min, scale_max) = radar.scale_range();
     let initial_state = RadarState::state_update(
         if is_synthetic { "synthetic" } else { "hardware" },
@@ -217,15 +237,15 @@ pub async fn acquisition_loop(
     state_broadcast.send_state(&initial_state);
 
     loop {
-        tokio::select! {
-            // Handle incoming commands
-            Some(cmd) = command_rx.recv() => {
-                handle_command(&mut radar, &state_broadcast, cmd, &mut paused).await;
+        match command_rx.recv_timeout(interval) {
+            Ok(cmd) => {
+                handle_command_sync(&mut radar, &state_broadcast, cmd, &mut paused);
             }
-
-            // Frame acquisition (only if not paused)
-            _ = tokio::time::sleep(interval), if !paused => {
-                // Capture full-resolution frame
+            Err(RecvTimeoutError::Timeout) => {
+                if paused {
+                    continue;
+                }
+                let t0 = Instant::now();
                 let frame = match radar.get_frame_full() {
                     Ok(f) => f,
                     Err(e) => {
@@ -233,43 +253,37 @@ pub async fn acquisition_loop(
                         continue;
                     }
                 };
-
-                // Encode to wire format
+                let t1 = Instant::now();
                 let encoded = EncodedFrame::from_frame(&frame);
                 let bytes = Arc::new(encoded.to_bytes());
-
-                // Broadcast to all clients (ignore if no receivers)
-                let receiver_count = frame_broadcast.receiver_count();
-                if receiver_count > 0 {
-                    if let Err(e) = frame_broadcast.send(bytes) {
-                        debug!("Broadcast send error (likely no receivers): {}", e);
-                    }
+                let t2 = Instant::now();
+                last_capture_ms = Some(t1.duration_since(t0).as_secs_f64() * 1000.0);
+                last_encode_ms = Some(t2.duration_since(t1).as_secs_f64() * 1000.0);
+                last_total_ms = Some(t2.duration_since(t0).as_secs_f64() * 1000.0);
+                if frame_tx.send(bytes).is_err() {
+                    break;
                 }
-
                 frame_count += 1;
-
-                // Log stats every 5 seconds
                 if last_log.elapsed() > Duration::from_secs(5) {
                     let fps = frame_count as f64 / last_log.elapsed().as_secs_f64();
                     info!(
-                        "Frame stats: {} frames, {:.1} FPS, {} clients",
-                        frame_count, fps, receiver_count
+                        capture_ms = last_capture_ms.unwrap_or(0.0),
+                        encode_ms = last_encode_ms.unwrap_or(0.0),
+                        total_ms = last_total_ms.unwrap_or(0.0),
+                        "Frame stats: {} frames, {:.1} FPS",
+                        frame_count, fps
                     );
                     frame_count = 0;
-                    last_log = std::time::Instant::now();
+                    last_log = Instant::now();
                 }
             }
-
-            // If paused, just wait for commands
-            _ = tokio::time::sleep(Duration::from_millis(100)), if paused => {
-                // Do nothing, just prevent busy loop
-            }
+            Err(RecvTimeoutError::Disconnected) => break,
         }
     }
 }
 
-/// Handle a command from a client.
-async fn handle_command(
+/// Handle a command from a client (sync; called from acquisition thread).
+fn handle_command_sync(
     radar: &mut RadarSource,
     state_broadcast: &StateBroadcast,
     cmd: RadarCommand,

@@ -12,6 +12,7 @@ pyo3 = { workspace = true }
 
 # Arrays and math
 ndarray = { workspace = true }
+bytemuck = "1.14"
 
 # Error handling
 thiserror = { workspace = true }
@@ -19,6 +20,9 @@ thiserror = { workspace = true }
 # Serialization (for config)
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# Logging (for GPU status at init)
+tracing = "0.1"
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }

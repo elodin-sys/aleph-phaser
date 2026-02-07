@@ -48,15 +48,11 @@ in {
   };
 
   config = mkIf cfg.enable {
-    # Set CUDA environment variables for CuPy's NVRTC compiler to find CUDA headers
-    # Required for GPU-accelerated demos to work properly
-    environment.sessionVariables = mkIf cfg.enableGpuDemos {
-      CUDA_PATH = "${pkgs.cudaPackages.cudatoolkit}";
-      # CuPy needs explicit include path for NVRTC runtime compilation
-      CUPY_INCLUDE_PATH = "${pkgs.cudaPackages.cudatoolkit}/include";
-    };
-    
+    # GPU support: tell the shared python-env module to include CuPy
+    aleph-phaser.enableGpu = mkIf cfg.enableGpuDemos true;
+
     # Core packages for PlutoSDR and Phaser
+    # Note: Python environment is managed by nix/modules/python-env.nix (single env for everything)
     environment.systemPackages = with pkgs; [
       # Core IIO libraries
       libiio
@@ -67,36 +63,15 @@ in {
       # Phaser data files (filters, calibration, etc.)
       # Installed to /opt/phaser via symlink below
       phaser-data
-      
-      # Python environment with necessary packages
-      (python3.withPackages (ps: with ps; [
-        # Core dependencies
-        numpy
-        matplotlib
-        scipy
-        
-        # ADI hardware control - properly packaged
-        pyadi-iio  # Includes pylibiio dependency
-        
-        # Demo support
-        psutil
-        pillow
-        
-        # Network communication (for remote Phaser)
-        paramiko
-      ] ++ (optionals cfg.enableGpuDemos [
-        # GPU-accelerated computing
-        cupy  # CuPy with CUDA 12.x support
-      ])))
+
+      # Our custom PlutoSDR test tool
+      test-plutosdr  # Available as 'test-plutosdr' command
     
-    # Our custom PlutoSDR test tool
-    test-plutosdr  # Available as 'test-plutosdr' command
-    
-    # Optional: GNU Radio stack
-  ] ++ (optionals cfg.enableGnuRadio [
-    gnuradio
-    # Note: gr-iio would need to be packaged separately
-  ]);
+      # Optional: GNU Radio stack
+    ] ++ (optionals cfg.enableGnuRadio [
+      gnuradio
+      # Note: gr-iio would need to be packaged separately
+    ]);
     
     # Create /opt/phaser symlink pointing to phaser-data files
     # This provides a stable path for scripts to reference:

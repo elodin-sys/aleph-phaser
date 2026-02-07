@@ -159,6 +159,7 @@
         aleph-dev # a default set of packages like cuda, opencv, and git that make developing on aleph easier
         
         # Import our custom modules
+        ./nix/modules/python-env.nix  # Unified Python environment (used by all services)
         ./nix/modules/plutosdr.nix
         ./nix/modules/radar-web.nix
       ];
@@ -212,8 +213,7 @@
         pciutils
         lshw
         
-        # Python development
-        python3
+        # Note: Python environment is managed by nix/modules/python-env.nix
         
         # Build tools (in case we need to compile anything)
         gcc

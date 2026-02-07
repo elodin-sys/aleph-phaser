@@ -6,6 +6,7 @@
 use ndarray::Array2;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use tracing::info;
 
 use crate::config::{RadarConfig, RadarMode};
 use crate::error::RadarError;
@@ -89,6 +90,10 @@ impl PythonBackend {
             let min_scale: f32 = py_config.get_item("min_scale")?.extract()?;
             let max_scale: f32 = py_config.get_item("max_scale")?.extract()?;
 
+            // Log GPU acceleration status for observability (journalctl)
+            let gpu_available: bool = py_config.get_item("gpu_available")?.extract()?;
+            info!(gpu_available, "RadarBackend GPU acceleration");
+
             Ok(Self {
                 py_backend: backend.unbind(),
                 n_doppler,
@@ -132,25 +137,8 @@ impl PythonBackend {
     /// Returns a 2D array of dB values, shape (n_doppler, n_range).
     pub fn capture(&mut self) -> Result<Array2<f32>, RadarError> {
         Python::with_gil(|py| {
-            // Call get_frame() on the Python backend
             let frame = self.py_backend.bind(py).call_method0("get_frame")?;
-
-            // Convert numpy array to Rust ndarray
-            let numpy = py.import_bound("numpy")?;
-            let frame_np = frame.call_method1("astype", (numpy.getattr("float32")?,))?;
-
-            // Get shape
-            let shape: (usize, usize) = frame_np.getattr("shape")?.extract()?;
-
-            // Get data as flat list and convert to Array2
-            let flat: Vec<f32> = frame_np
-                .call_method0("flatten")?
-                .call_method0("tolist")?
-                .extract()?;
-
-            let array = Array2::from_shape_vec((shape.0, shape.1), flat)?;
-
-            Ok(array)
+            Self::numpy_to_array2(&frame)
         })
     }
 
@@ -176,29 +164,32 @@ impl PythonBackend {
     /// This is useful for web visualization where client-side zoom is desired.
     pub fn capture_full(&mut self) -> Result<Array2<f32>, RadarError> {
         Python::with_gil(|py| {
-            // Call get_frame_full_resolution() on the Python backend
             let frame = self
                 .py_backend
                 .bind(py)
                 .call_method0("get_frame_full_resolution")?;
-
-            // Convert numpy array to Rust ndarray
-            let numpy = py.import_bound("numpy")?;
-            let frame_np = frame.call_method1("astype", (numpy.getattr("float32")?,))?;
-
-            // Get shape
-            let shape: (usize, usize) = frame_np.getattr("shape")?.extract()?;
-
-            // Get data as flat list and convert to Array2
-            let flat: Vec<f32> = frame_np
-                .call_method0("flatten")?
-                .call_method0("tolist")?
-                .extract()?;
-
-            let array = Array2::from_shape_vec((shape.0, shape.1), flat)?;
-
-            Ok(array)
+            Self::numpy_to_array2(&frame)
         })
+    }
+
+    /// Convert a numpy array (float32) to ndarray::Array2<f32> via raw bytes.
+    /// Avoids the catastrophic .tolist() path which creates 900k+ Python objects.
+    fn numpy_to_array2(frame: &pyo3::Bound<'_, PyAny>) -> Result<Array2<f32>, RadarError> {
+        let py = frame.py();
+        let numpy = py.import_bound("numpy")?;
+        let float32 = numpy.getattr("float32")?;
+        let frame_np = frame.call_method1("astype", (float32,))?;
+        let frame_c = numpy.call_method1("ascontiguousarray", (frame_np,))?;
+
+        let shape: (usize, usize) = frame_c.getattr("shape")?.extract()?;
+
+        let bytes: Vec<u8> = frame_c.call_method0("tobytes")?.extract()?;
+
+        let float_slice: &[f32] = bytemuck::cast_slice(&bytes);
+        let array = Array2::from_shape_vec((shape.0, shape.1), float_slice.to_vec())
+            .map_err(|e| RadarError::InitializationError(e.to_string()))?;
+
+        Ok(array)
     }
 
     /// Get minimum scale value.

@@ -5,32 +5,32 @@ WebGPU-based radar visualization web application. Provides real-time range-Doppl
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Browser                                  │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                  WASM Client                             │   │
+┌───────────────────────────────────────────────────────────────┐
+│                         Browser                               │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │                  WASM Client                           │   │
 │  │  ┌───────────┐  ┌───────────┐  ┌───────────────────┐   │   │
 │  │  │ WebSocket │  │ Protocol  │  │  WebGPU Renderer  │   │   │
 │  │  │  Client   │──│  Decoder  │──│  (wgpu + shaders) │   │   │
 │  │  └───────────┘  └───────────┘  └───────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+│  └────────────────────────────────────────────────────────┘   │
+└───────────────────────────────────────────────────────────────┘
                               │ WebSocket
                               │ (binary frames + JSON commands)
                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       Axum Server                                │
+┌────────────────────────────────────────────────────────────────┐
+│                       Axum Server                              │
 │  ┌───────────┐  ┌───────────────┐  ┌─────────────────────────┐ │
 │  │   REST    │  │   WebSocket   │  │    Frame Acquisition    │ │
 │  │   API     │  │   Handler     │──│    Loop (tokio)         │ │
 │  └───────────┘  └───────────────┘  └─────────────────────────┘ │
-│                                              │                   │
-│                                              ▼                   │
-│                                    ┌─────────────────────────┐  │
-│                                    │      radar-core         │  │
-│                                    │   (Python backend)      │  │
-│                                    └─────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+│                                              │                 │
+│                                              ▼                 │
+│                                    ┌─────────────────────────┐ │
+│                                    │      radar-core         │ │
+│                                    │   (Python backend)      │ │
+│                                    └─────────────────────────┘ │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
@@ -231,6 +231,15 @@ apps/radar-web/
 - Complex test patterns (noise) are slower than simple ones
 - Check browser DevTools console for WebGPU errors
 
+### GPU not used (CuPy / GR3D_FREQ 0%)
+If `tegrastats` shows `GR3D_FREQ 0%` and timing shows ~60 ms `fft_ms`, the Python backend is using NumPy (CPU) instead of CuPy (GPU).
+
+1. **Check GPU status in logs** – After deploy, run `journalctl -u radar-web --no-pager | head -80` and look for:
+   - At import: `RadarBackend: GPU acceleration ENABLED (CuPy/CUDA)` or `DISABLED (...)`.
+   - On first hardware frame: `RadarBackend: gpu_available=True backend=cupy` or `gpu_available=False backend=numpy`.
+2. **LD_LIBRARY_PATH** – CuPy needs the CUDA driver and runtime on `LD_LIBRARY_PATH`. The radar-web service gets this from `config.aleph-phaser.cudaEnv` (see `nix/modules/python-env.nix`), which uses `environment.variables.LD_LIBRARY_PATH` when set (e.g. by the aleph-dev module). If that isn’t set, the service falls back to the cudatoolkit lib path; on Jetson, the nvidia driver (`libcuda.so.1`) may live in a path that only aleph-dev sets. Ensure the NixOS config that sets up the Jetson (aleph-dev / jetpack) sets `environment.variables.LD_LIBRARY_PATH` so the radar-web service inherits it.
+3. **CuPy in the Python env** – GPU is only enabled when `services.plutosdr.enableGpuDemos = true` (or equivalent) so that `aleph-phaser.enableGpu` is true and the unified Python env includes CuPy.
+
 ## Development
 
 ### Rebuild WASM on changes
@@ -246,3 +255,49 @@ cargo watch -w apps/radar-web/client/src -s \
 ```bash
 RUST_LOG=debug cargo run -p radar-web -- --synthetic
 ```
+
+## Deploy
+
+From the **repository root** (optionally inside `nix develop`):
+
+```bash
+# Deploy NixOS config (including radar-web service when enabled) to the default host
+./deploy.sh
+
+# Override host, user, or SSH key
+./deploy.sh -h 192.168.4.185 -u aleph
+./deploy.sh -h 192.168.4.185 -u aleph -k ./ssh/aleph-phaser
+```
+
+The deploy script builds the NixOS system (see `flake.nix`), pushes it to the target, and runs `switch-to-configuration switch`. The radar-web systemd service is started when `services.radar-web.enable` is true in the selected NixOS config.
+
+## Testing
+
+### Local (synthetic)
+
+```bash
+cargo run -p radar-web -- --synthetic
+```
+
+Then open http://localhost:8080 and confirm the range-Doppler view and keyboard controls work.
+
+### Local (hardware)
+
+```bash
+cargo run -p radar-web -- --sdr-uri ip:192.168.2.1 --phaser-uri ip:192.168.2.1
+```
+
+### After deploy
+
+```bash
+# Service status (on the device or via SSH)
+sudo systemctl status radar-web
+
+# API health check
+curl http://HOST:8080/api/status
+
+# Logs (GPU status, frame timing, errors)
+journalctl -u radar-web -f
+```
+
+Replace `HOST` with the device IP (e.g. the Aleph host). For GPU observability, on the device run `sudo tegrastats --interval 500` and look for `GR3D_FREQ` during frame processing.

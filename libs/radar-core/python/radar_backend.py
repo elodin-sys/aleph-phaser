@@ -9,8 +9,9 @@ The interface is designed for PyO3 integration with the Rust TUI application.
 """
 
 import numpy as np
-from typing import Dict, Optional, Tuple
+import sys
 import time
+from typing import Dict, Optional, Tuple
 
 
 # ============================================================================
@@ -26,12 +27,15 @@ try:
     GPU_AVAILABLE = True
     xp = cp
     print("RadarBackend: GPU acceleration ENABLED (CuPy/CUDA)")
+    sys.stdout.flush()
 except ImportError:
     xp = np
     print("RadarBackend: GPU acceleration DISABLED (CuPy not installed, using NumPy)")
+    sys.stdout.flush()
 except Exception as e:
     xp = np
     print(f"RadarBackend: GPU acceleration DISABLED (CUDA error: {e})")
+    sys.stdout.flush()
 
 
 def to_gpu(data):
@@ -46,6 +50,14 @@ def to_cpu(data):
     if GPU_AVAILABLE and hasattr(data, 'get'):
         return data.get()
     return data if isinstance(data, np.ndarray) else np.array(data)
+
+
+def get_gpu_status() -> Dict:
+    """Return GPU acceleration status for logging from Rust."""
+    return {
+        "gpu_available": GPU_AVAILABLE,
+        "backend": "cupy" if GPU_AVAILABLE else "numpy",
+    }
 
 
 # ============================================================================
@@ -152,6 +164,7 @@ class RadarBackend:
         self.tdd = None
         self.sdr_pins = None
         self._hardware_initialized = False
+        self._gpu_status_logged = False
         self._last_raw_data = None
         self._last_rx_bursts = None
         
@@ -898,16 +911,27 @@ class RadarBackend:
         if not self._hardware_initialized:
             raise RuntimeError("Hardware not initialized")
         
+        # Log GPU status once so it appears with timing lines in journalctl
+        if not self._gpu_status_logged:
+            status = get_gpu_status()
+            print(
+                f"RadarBackend: gpu_available={status['gpu_available']} backend={status['backend']} (first hardware frame)",
+                flush=True,
+            )
+            self._gpu_status_logged = True
+        
         # Trigger burst (matching Jon's script)
         self.phaser._gpios.gpio_burst = 0
         self.phaser._gpios.gpio_burst = 1
         self.phaser._gpios.gpio_burst = 0
         
+        t0 = time.perf_counter()
         # Capture data
         data = self.sdr.rx()
         chan1 = data[0]
         chan2 = data[1]
         sum_data = chan1 + chan2
+        t1 = time.perf_counter()
         
         # Store raw data for diagnostics
         self._last_raw_data = sum_data
@@ -918,6 +942,7 @@ class RadarBackend:
             start_index = self.start_offset_samples + burst * self.n_frame
             stop_index = start_index + self.good_ramp_samples
             rx_bursts[burst] = sum_data[start_index:stop_index]
+        t2 = time.perf_counter()
         
         # Store reshaped data for diagnostics
         self._last_rx_bursts = rx_bursts
@@ -928,6 +953,16 @@ class RadarBackend:
         
         # Process to Range-Doppler map (full resolution, no slicing)
         rd_map = self._process_to_rd_map_full(rx_bursts)
+        t3 = time.perf_counter()
+        
+        sdr_ms = (t1 - t0) * 1000
+        reshape_ms = (t2 - t1) * 1000
+        fft_ms = (t3 - t2) * 1000
+        total_ms = (t3 - t0) * 1000
+        print(
+            f"RadarBackend timing: sdr_rx_ms={sdr_ms:.2f} reshape_ms={reshape_ms:.2f} fft_ms={fft_ms:.2f} total_ms={total_ms:.2f}",
+            flush=True,
+        )
         
         return rd_map
 
@@ -1220,6 +1255,10 @@ class RadarBackend:
             config['test_pattern'] = self._test_pattern
             config['available_patterns'] = self._available_patterns
         return config
+
+    def get_gpu_status(self) -> Dict:
+        """Return GPU acceleration status for logging from Rust."""
+        return get_gpu_status()
 
     def export_frame(self, directory: str, frame: np.ndarray = None) -> str:
         """Export the current frame to a file for offline analysis.

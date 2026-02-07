@@ -65,8 +65,8 @@ async fn handle_socket(socket: WebSocket, state: WsState) {
     // Command sender for this client
     let command_tx = state.command_tx.clone();
 
-    // Request initial state when client connects
-    let _ = command_tx.send(RadarCommand::GetState).await;
+    // Request initial state when client connects (try_send is non-blocking)
+    let _ = command_tx.try_send(RadarCommand::GetState);
 
     // Create a channel to merge outgoing messages
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<Message>(64);
@@ -113,9 +113,8 @@ async fn handle_socket(socket: WebSocket, state: WsState) {
                     debug!("Client {} sent command: {}", client_id, text);
                     match serde_json::from_str::<RadarCommand>(&text) {
                         Ok(cmd) => {
-                            if command_tx.send(cmd).await.is_err() {
-                                warn!("Client {} command channel closed", client_id);
-                                break;
+                            if command_tx.try_send(cmd).is_err() {
+                                warn!("Client {} command channel full or closed", client_id);
                             }
                         }
                         Err(e) => {
