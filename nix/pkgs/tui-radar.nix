@@ -12,7 +12,8 @@
 #   tui-radar --synthetic  # Run with synthetic data
 #   tui-radar              # Run with live hardware
 
-{ lib, makeRustPlatform, rust-bin, pkg-config, python3, makeWrapper, workspaceSrc }:
+{ lib, makeRustPlatform, rust-bin, pkg-config, python3, makeWrapper, workspaceSrc
+, pythonEnv ? null, cudaPackages ? null, defaultArgs ? "" }:
 
 let
   # Use latest stable Rust from rust-overlay for modern crate support
@@ -56,11 +57,26 @@ rustPlatform.buildRustPackage {
     cp ${workspaceSrc}/libs/radar-core/python/*.py $out/lib/python/
   '';
 
-  # Set up runtime environment to find Python module
-  postFixup = ''
+  # Set up runtime environment to find Python module and CUDA headers.
+  # PYTHONHOME must point to the unified Python env (with CuPy, pyadi-iio, etc.)
+  # so the PyO3-embedded interpreter finds all site-packages.
+  # CUDA vars are needed for CuPy JIT kernel compilation.
+  postFixup = let
+    envArgs = lib.concatStringsSep " "
+      (lib.optional (pythonEnv != null) "--set PYTHONHOME \"${pythonEnv}\""
+       ++ lib.optionals (cudaPackages != null) [
+         "--set CUDA_PATH \"${cudaPackages.cudatoolkit}\""
+         "--set CUPY_INCLUDE_PATH \"${cudaPackages.cudatoolkit}/include\""
+       ]);
+    # Default CLI flags baked into the wrapper (e.g. radar params from shared config).
+    # User can still override any flag on the command line (clap takes the last value).
+    flagsArg = lib.optionalString (defaultArgs != "") ''--add-flags "${defaultArgs}"'';
+  in ''
     wrapProgram $out/bin/tui-radar \
       --set RADAR_BACKEND_PATH "$out/lib/python" \
-      --prefix PYTHONPATH : "$out/lib/python"
+      --prefix PYTHONPATH : "$out/lib/python" \
+      ${envArgs} \
+      ${flagsArg}
   '';
 
   meta = with lib; {

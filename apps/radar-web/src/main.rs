@@ -44,6 +44,14 @@ struct Args {
     /// Number of chirps per frame (Doppler bins). More = finer velocity resolution but slower capture.
     #[arg(long, default_value = "256")]
     num_chirps: usize,
+
+    /// Chirp ramp time in microseconds. Shorter = fewer range bins but faster SDR capture.
+    #[arg(long, default_value = "500")]
+    ramp_time_us: u32,
+
+    /// Maximum display range in meters.
+    #[arg(long, default_value = "10.0")]
+    max_range: f64,
 }
 
 #[tokio::main]
@@ -69,7 +77,28 @@ async fn main() -> anyhow::Result<()> {
         RadarConfig::hardware(&sdr_uri, &phaser_uri)
     };
     radar_config.n_doppler = args.num_chirps;
+    radar_config.ramp_time_us = args.ramp_time_us;
+    radar_config.max_range = args.max_range;
+
     info!("Chirps per frame (Doppler bins): {}", radar_config.n_doppler);
+    info!(
+        "Range config: ramp={}us, bins={}, max={:.1}m, resolution={:.2}m",
+        radar_config.ramp_time_us,
+        radar_config.n_range_full(),
+        radar_config.max_range,
+        radar_config.range_resolution()
+    );
+
+    // Log estimated data volume for operator visibility
+    let pri_ms = radar_config.ramp_time_us as f64 / 1000.0 + 0.2;
+    let n_frame = (pri_ms / 1000.0 * radar_config.sample_rate as f64) as u64;
+    let buffer_size = (radar_config.n_doppler as u64 * n_frame).next_power_of_two();
+    let raw_kb = 2 * buffer_size * 4 / 1024;
+    info!(
+        "SDR transfer estimate: buffer={}K samples, raw={}KB",
+        buffer_size / 1024,
+        raw_kb
+    );
 
     let server_config = ServerConfig {
         host: args.host,

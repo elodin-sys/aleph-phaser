@@ -51,9 +51,9 @@ struct Args {
     #[arg(long, default_value = "30")]
     fps: u32,
 
-    /// Number of Doppler bins / chirps (matches Jon's num_chirps)
-    #[arg(long, default_value = "512")]
-    n_doppler: usize,
+    /// Number of chirps per frame (Doppler bins). More = finer velocity resolution but slower capture.
+    #[arg(long, default_value = "256")]
+    num_chirps: usize,
 
     /// Maximum range to display (meters)
     #[arg(long, default_value = "10.0")]
@@ -90,7 +90,7 @@ fn main() -> Result<()> {
         phaser_uri: args.phaser_uri,
         synthetic: args.synthetic,
         target_fps: args.fps,
-        n_doppler: args.n_doppler,
+        n_doppler: args.num_chirps,
         max_range: args.max_range,
         chirp_bw: args.chirp_bw,
         ramp_time_us: args.ramp_time_us,

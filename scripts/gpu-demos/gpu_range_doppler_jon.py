@@ -341,28 +341,17 @@ def freq_process(data):
     return to_cpu(range_doppler_data)
 
 def mti_filter_process(rx_bursts):
-    """GPU-accelerated MTI (Moving Target Indicator) filter."""
-    # Transfer to GPU if available
+    """GPU-accelerated MTI (Moving Target Indicator) filter (vectorized)."""
     rx_chirps = to_gpu(rx_bursts)
-    num_samples = rx_chirps.shape[1]
-    
-    # Create 2 pulse canceller MTI array on GPU
-    Chirp2P = xp.ones([num_chirps, num_samples], dtype=xp.complex128)
-    
-    for chirp in range(num_chirps-1):
-        chirpI = rx_chirps[chirp, :]
-        chirpI1 = rx_chirps[chirp+1, :]
-        
-        # Correlation on GPU
-        chirp_correlation = xp.correlate(chirpI, chirpI1, 'valid')
-        
-        angle_diff = xp.angle(chirp_correlation)  # returns radians
-        Chirp2P[chirp, :] = chirpI1 - chirpI * xp.exp(-1j * angle_diff[0])
-    
-    # Synchronize GPU
-    cp.cuda.Stream.null.synchronize()
-    
-    return Chirp2P  # Return GPU array for further processing
+    # Vectorized correlation: dot product of consecutive chirp pairs
+    corr = xp.sum(rx_chirps[:-1] * xp.conj(rx_chirps[1:]), axis=1)
+    angles = xp.angle(corr)
+    phase_correction = xp.exp(-1j * angles[:, None])
+    result = xp.zeros_like(rx_chirps)
+    result[:-1] = rx_chirps[1:] - rx_chirps[:-1] * phase_correction
+    if hasattr(cp, 'cuda') and cp.cuda.is_available():
+        cp.cuda.Stream.null.synchronize()
+    return result  # Return GPU array for further processing
 # ============================================================================
 
 

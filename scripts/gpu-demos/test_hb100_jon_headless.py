@@ -236,18 +236,17 @@ def main():
         range_doppler_data = xp.clip(range_doppler_data, min_scale, max_scale)
         return to_cpu(range_doppler_data)
 
-    # ---- Jon's MTI filter ----
+    # ---- Jon's MTI filter (vectorized) ----
     def mti_filter_process(rx_bursts):
         rx_chirps = to_gpu(rx_bursts)
-        num_samples = rx_chirps.shape[1]
-        Chirp2P = xp.ones([num_chirps, num_samples], dtype=xp.complex128)
-        for chirp in range(num_chirps-1):
-            chirpI = rx_chirps[chirp, :]
-            chirpI1 = rx_chirps[chirp+1, :]
-            chirp_correlation = xp.correlate(chirpI, chirpI1, 'valid')
-            angle_diff = xp.angle(chirp_correlation)
-            Chirp2P[chirp, :] = chirpI1 - chirpI * xp.exp(-1j * angle_diff[0])
-        return to_cpu(Chirp2P)
+        corr = xp.sum(rx_chirps[:-1] * xp.conj(rx_chirps[1:]), axis=1)
+        angles = xp.angle(corr)
+        phase_correction = xp.exp(-1j * angles[:, None])
+        result = xp.zeros_like(rx_chirps)
+        result[:-1] = rx_chirps[1:] - rx_chirps[:-1] * phase_correction
+        if HAS_GPU:
+            cp.cuda.Stream.null.synchronize()
+        return to_cpu(result)
 
     # ---- Discard transients ----
     print("Discarding 10 transient frames...")

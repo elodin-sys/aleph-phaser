@@ -330,6 +330,10 @@ class RadarBackend:
                             if ch.output and 'label' in ch.attrs and ch.attrs['label'].value == label:
                                 ch.attrs['raw'].value = str(int(val))
                                 return
+                        print(
+                            f"RadarBackend (USB): output channel '{label}' not found in one-bit-adc-dac",
+                            flush=True,
+                        )
                     def _get_in(self, label):
                         for ch in self._dev.channels:
                             if not ch.output and 'label' in ch.attrs and ch.attrs['label'].value == label:
@@ -1010,30 +1014,21 @@ class RadarBackend:
 
     def _apply_mti(self, rx_bursts: np.ndarray) -> np.ndarray:
         """
-        Apply phase-corrected 2-pulse canceller MTI filter.
-        Matching Jon's implementation exactly.
+        Apply phase-corrected 2-pulse canceller MTI filter (vectorized).
+        Equivalent to Jon's loop: dot-product correlation per chirp pair, then
+        phase-corrected subtraction. Returns CPU array for buffer reuse in RD map.
         """
         rx_chirps = to_gpu(rx_bursts)
-        num_samples = rx_chirps.shape[1]
-        
-        # Create output array
-        Chirp2P = xp.ones([self.num_chirps, num_samples], dtype=xp.complex128)
-        
-        for chirp in range(self.num_chirps - 1):
-            chirpI = rx_chirps[chirp, :]
-            chirpI1 = rx_chirps[chirp + 1, :]
-            
-            # Correlation to find phase difference
-            chirp_correlation = xp.correlate(chirpI, chirpI1, 'valid')
-            angle_diff = xp.angle(chirp_correlation)
-            
-            # Phase-corrected subtraction
-            Chirp2P[chirp, :] = chirpI1 - chirpI * xp.exp(-1j * angle_diff[0])
-        
+        # Vectorized correlation: dot product of consecutive chirp pairs -> (N-1,)
+        corr = xp.sum(rx_chirps[:-1] * xp.conj(rx_chirps[1:]), axis=1)
+        angles = xp.angle(corr)
+        # Phase-corrected subtraction (broadcasting across samples)
+        phase_correction = xp.exp(-1j * angles[:, None])
+        result = xp.zeros_like(rx_chirps)
+        result[:-1] = rx_chirps[1:] - rx_chirps[:-1] * phase_correction
         if GPU_AVAILABLE:
             cp.cuda.Stream.null.synchronize()
-        
-        return Chirp2P
+        return to_cpu(result)
 
     def _process_to_rd_map(self, rx_bursts) -> np.ndarray:
         """
@@ -1143,9 +1138,11 @@ class RadarBackend:
         if self.dc_suppression:
             rx_bursts = self._suppress_dc_leakage(rx_bursts)
         
+        t4_mti_start = time.perf_counter()
         # Apply MTI filter if enabled
         if self.mti_enabled:
             rx_bursts = self._apply_mti(rx_bursts)
+        t4_mti_end = time.perf_counter()
         
         # Process to Range-Doppler map (full resolution, no slicing) with fine-grained timing
         process_timings = {}
@@ -1156,6 +1153,7 @@ class RadarBackend:
         sdr_rx_ms = (t2 - t1) * 1000
         channel_sum_ms = (t3 - t2) * 1000
         reshape_ms = (t4 - t3) * 1000
+        mti_ms = (t4_mti_end - t4_mti_start) * 1000 if self.mti_enabled else 0.0
         process_total_ms = (t5 - t4) * 1000
         total_ms = (t5 - t0) * 1000
         to_gpu_ms = process_timings.get("to_gpu_ms", 0)
@@ -1166,7 +1164,7 @@ class RadarBackend:
         astype_ms = process_timings.get("astype_ms", 0)
         print(
             f"RadarBackend timing: gpio_ms={gpio_ms:.3f} sdr_rx_ms={sdr_rx_ms:.2f} channel_sum_ms={channel_sum_ms:.3f} "
-            f"reshape_ms={reshape_ms:.2f} to_gpu_ms={to_gpu_ms:.2f} fft_ms={fft_ms:.2f} log10_clip_ms={log10_clip_ms:.2f} "
+            f"reshape_ms={reshape_ms:.2f} mti_ms={mti_ms:.2f} to_gpu_ms={to_gpu_ms:.2f} fft_ms={fft_ms:.2f} log10_clip_ms={log10_clip_ms:.2f} "
             f"sync_ms={sync_ms:.2f} to_cpu_ms={to_cpu_ms:.2f} astype_ms={astype_ms:.3f} process_total_ms={process_total_ms:.2f} total_ms={total_ms:.2f}",
             flush=True,
         )

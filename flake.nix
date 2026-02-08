@@ -160,7 +160,8 @@
         aleph-dev # a default set of packages like cuda, opencv, and git that make developing on aleph easier
         
         # Import our custom modules
-        ./nix/modules/python-env.nix  # Unified Python environment (used by all services)
+        ./nix/modules/radar-config.nix  # Shared radar parameters (single source of truth)
+        ./nix/modules/python-env.nix    # Unified Python environment (used by all services)
         ./nix/modules/plutosdr.nix
         ./nix/modules/radar-web.nix
       ];
@@ -187,13 +188,20 @@
         enableGpuDemos = true; # Enable GPU-accelerated radar demos
       };
 
-      # Optional: radar-web server (WebGPU visualization on :8080)
+      # Shared radar parameters -- single source of truth for both tui-radar and radar-web.
+      # Close-range defaults optimized for desktop demo (0-10 feet).
+      aleph-phaser.radar = {
+        mode = "hardware";
+        sdrUri = "ip:192.168.2.1";     # IP mode required: gpio_tdd_ext_sync not exposed over USB
+        phaserUri = "ip:192.168.4.184";
+        numChirps = 128;                # Close-range: fast capture (~2+ FPS)
+        rampTimeUs = 100;               # Close-range: 360 range bins, ~2 MB transfer vs 8 MB
+        maxRange = 3.0;                 # Desktop demo: ~10 feet
+      };
+
+      # radar-web inherits all radar params from aleph-phaser.radar above
       services.radar-web = {
         enable = true;
-        mode = "hardware";
-        sdrUri = "ip:192.168.2.1";  # IP mode so gpio_tdd_ext_sync works (USB mode has no-op setter)
-        phaserUri = "ip:192.168.4.184";
-        numChirps = 256;  # Doppler bins: 128=fast/~2FPS, 256=balanced/~1.3FPS, 512=full-res/~0.7FPS
       };
 
       # Additional system packages for Phaser development
@@ -223,8 +231,19 @@
         cmake
         pkg-config
         
-        # TUI Radar application
-        tui-radar
+        # TUI Radar application (with PYTHONHOME + CUDA for CuPy JIT + shared radar config)
+        (let rcfg = config.aleph-phaser.radar; in
+        tui-radar.override {
+          pythonEnv = config.aleph-phaser.pythonEnv;
+          cudaPackages = pkgs.cudaPackages or null;
+          defaultArgs = builtins.concatStringsSep " " [
+            "--num-chirps" (toString rcfg.numChirps)
+            "--ramp-time-us" (toString rcfg.rampTimeUs)
+            "--max-range" (toString rcfg.maxRange)
+            "--sdr-uri" rcfg.sdrUri
+            "--phaser-uri" rcfg.phaserUri
+          ];
+        })
         # Radar Web (also started by services.radar-web when enabled)
         radar-web
       ];
