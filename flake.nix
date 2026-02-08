@@ -51,6 +51,7 @@
       pythonEnv = pkgs.python312.withPackages (ps: [
         ps.numpy
         ps.paramiko
+        ps.matplotlib
         pylibiio
         pyadi-iio
       ]);
@@ -190,7 +191,7 @@
       services.radar-web = {
         enable = true;
         mode = "hardware";
-        sdrUri = "ip:192.168.2.1";
+        sdrUri = "ip:192.168.2.1";  # IP mode so gpio_tdd_ext_sync works (USB mode has no-op setter)
         phaserUri = "ip:192.168.4.184";
         numChirps = 256;  # Doppler bins: 128=fast/~2FPS, 256=balanced/~1.3FPS, 512=full-res/~0.7FPS
       };

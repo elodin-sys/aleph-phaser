@@ -73,8 +73,15 @@ in {
 
     # Install the unified Python env into the system profile so `python3` on the
     # Aleph always has everything.
-    # Note: we do NOT set environment.sessionVariables for CUDA here — the upstream
-    # aleph-dev module already sets LD_LIBRARY_PATH etc. for interactive sessions.
     environment.systemPackages = [ cfg.pythonEnv ];
+
+    # Export CUDA_PATH and CUPY_INCLUDE_PATH for interactive sessions (SSH, etc.).
+    # The upstream aleph-dev module sets LD_LIBRARY_PATH but not these CuPy-specific
+    # vars. Without them, CuPy's JIT kernel compilation fails with:
+    #   cannot open source file "cuda_fp16.h"
+    environment.sessionVariables = optionalAttrs (cfg.enableGpu && hasCuda) {
+      CUDA_PATH = "${pkgs.cudaPackages.cudatoolkit}";
+      CUPY_INCLUDE_PATH = "${pkgs.cudaPackages.cudatoolkit}/include";
+    };
   };
 }

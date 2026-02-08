@@ -253,13 +253,16 @@ impl PythonBackend {
 
     /// Export current frame to a file.
     ///
+    /// Uses full-resolution capture so the exported data matches what the web UI displays.
     /// Returns the path to the exported file.
     pub fn export_frame(&self, directory: &str) -> Result<String, RadarError> {
         Python::with_gil(|py| {
+            let kwargs = PyDict::new_bound(py);
+            kwargs.set_item("full_resolution", true)?;
             let result = self
                 .py_backend
                 .bind(py)
-                .call_method1("export_frame", (directory,))?;
+                .call_method("export_frame", (directory,), Some(&kwargs))?;
             let path: String = result.extract()?;
             Ok(path)
         })

@@ -151,6 +151,9 @@ class RadarBackend:
         # MTI filter state
         self.mti_enabled = False
         self.previous_frame = None
+
+        # DC leakage suppression (per-chirp mean subtraction); default True for target detection
+        self.dc_suppression = True
         
         # Display scaling (matching Jon's imshow vmin/vmax, not clip range)
         # Jon clips to [0, 50] but displays with vmax=8
@@ -186,12 +189,173 @@ class RadarBackend:
         """Initialize hardware connections and configuration."""
         try:
             import adi
+            import iio as _iio
             
-            # Connect to devices
-            self.sdr = adi.ad9361(uri=self.sdr_uri)
+            # Connect to PlutoSDR. For USB direct mode (uri='usb:'), all Pluto
+            # IIO devices must share a single context because the USB interface
+            # can only be claimed once.  For IP/RNDIS mode, each adi.* class
+            # opens its own network connection which is fine.
+            is_usb = self.sdr_uri.startswith("usb:")
+            if is_usb:
+                sdr_ctx = _iio.Context(self.sdr_uri)
+                print(f"RadarBackend: USB direct mode, shared IIO context ({len(sdr_ctx.devices)} devices)", flush=True)
+                self.sdr = adi.ad9361(uri_ctx=sdr_ctx)
+                # tddn and one_bit_adc_dac don't support uri_ctx, so we
+                # construct them with the default uri and then inject the
+                # shared context.
+                self.tdd = adi.tddn.__new__(adi.tddn)
+                self.tdd._ctx = sdr_ctx
+                self.tdd.uri = self.sdr_uri
+                # Find the TDD device (named 'adi-iio-fakedev' over USB,
+                # or 'iio-axi-tdd-0' over IP).
+                for _d in sdr_ctx.devices:
+                    _name = _d.name or ''
+                    if 'tdd' in _name or _name == 'adi-iio-fakedev':
+                        self.tdd._ctrl = _d
+                        break
+                else:
+                    raise RuntimeError("TDD device not found in USB context")
+                # Populate TDD channel objects so tdd.channel[N] works
+                self.tdd._channels = []
+                for ch in self.tdd._ctrl.channels:
+                    self.tdd._channels.append(ch)
+                # Build the channel wrapper list that tddn expects
+                class _TddCh:
+                    """Lightweight wrapper matching adi.tddn channel interface."""
+                    def __init__(self, ctrl, idx):
+                        self._ctrl = ctrl
+                        self._idx = idx
+                    def _get(self, attr):
+                        return self._ctrl.channels[self._idx].attrs[attr].value
+                    def _set(self, attr, val):
+                        self._ctrl.channels[self._idx].attrs[attr].value = str(val)
+                    @property
+                    def enable(self):
+                        return int(self._get('enable'))
+                    @enable.setter
+                    def enable(self, v):
+                        self._set('enable', int(v))
+                    @property
+                    def polarity(self):
+                        return int(self._get('polarity'))
+                    @polarity.setter
+                    def polarity(self, v):
+                        self._set('polarity', int(v))
+                    @property
+                    def on_raw(self):
+                        return int(self._get('on_raw'))
+                    @on_raw.setter
+                    def on_raw(self, v):
+                        self._set('on_raw', int(v))
+                    @property
+                    def off_raw(self):
+                        return int(self._get('off_raw'))
+                    @off_raw.setter
+                    def off_raw(self, v):
+                        self._set('off_raw', int(v))
+                    @property
+                    def on_ms(self):
+                        return float(self._get('on_ms'))
+                    @on_ms.setter
+                    def on_ms(self, v):
+                        self._set('on_ms', v)
+                    @property
+                    def off_ms(self):
+                        return float(self._get('off_ms'))
+                    @off_ms.setter
+                    def off_ms(self, v):
+                        self._set('off_ms', v)
+                self.tdd.channel = [_TddCh(self.tdd._ctrl, i) for i in range(len(list(self.tdd._ctrl.channels)))]
+                # TDD top-level attributes via the device attrs
+                class _TddProxy:
+                    """Proxies top-level TDD attributes for the shared-context case."""
+                    def __init__(self, ctrl, channels):
+                        self._ctrl = ctrl
+                        self.channel = channels
+                    def _get(self, attr):
+                        return self._ctrl.attrs[attr].value
+                    def _set(self, attr, val):
+                        self._ctrl.attrs[attr].value = str(val)
+                    @property
+                    def enable(self):
+                        return bool(int(self._get('enable')))
+                    @enable.setter
+                    def enable(self, v):
+                        self._set('enable', int(v))
+                    @property
+                    def sync_external(self):
+                        return bool(int(self._get('sync_external')))
+                    @sync_external.setter
+                    def sync_external(self, v):
+                        self._set('sync_external', int(v))
+                    @property
+                    def startup_delay_ms(self):
+                        return float(self._get('startup_delay_ms'))
+                    @startup_delay_ms.setter
+                    def startup_delay_ms(self, v):
+                        self._set('startup_delay_ms', v)
+                    @property
+                    def frame_length_ms(self):
+                        return float(self._get('frame_length_ms'))
+                    @frame_length_ms.setter
+                    def frame_length_ms(self, v):
+                        self._set('frame_length_ms', v)
+                    @property
+                    def burst_count(self):
+                        return int(self._get('burst_count'))
+                    @burst_count.setter
+                    def burst_count(self, v):
+                        self._set('burst_count', int(v))
+                self.tdd = _TddProxy(self.tdd._ctrl, self.tdd.channel)
+
+                # one_bit_adc_dac: build a lightweight proxy for the shared USB context.
+                # We only need gpio_tdd_ext_sync and gpio_phaser_enable.
+                _obad_dev = None
+                for _d in sdr_ctx.devices:
+                    if (_d.name or '') == 'one-bit-adc-dac':
+                        _obad_dev = _d
+                        break
+                else:
+                    raise RuntimeError("one-bit-adc-dac device not found in USB context")
+                class _GpioProxy:
+                    """Minimal proxy for one-bit-adc-dac GPIO pins over shared USB context."""
+                    def __init__(self, dev):
+                        self._dev = dev
+                        self._out_chs = {ch.attrs.get('label', ch).value if hasattr(ch.attrs.get('label', ch), 'value') else '': ch
+                                         for ch in dev.channels if ch.output}
+                        self._in_chs = {ch.attrs.get('label', ch).value if hasattr(ch.attrs.get('label', ch), 'value') else '': ch
+                                        for ch in dev.channels if not ch.output}
+                    def _set_out(self, label, val):
+                        for ch in self._dev.channels:
+                            if ch.output and 'label' in ch.attrs and ch.attrs['label'].value == label:
+                                ch.attrs['raw'].value = str(int(val))
+                                return
+                    def _get_in(self, label):
+                        for ch in self._dev.channels:
+                            if not ch.output and 'label' in ch.attrs and ch.attrs['label'].value == label:
+                                return int(ch.attrs['raw'].value)
+                        return 0
+                    @property
+                    def gpio_tdd_ext_sync(self):
+                        return self._get_in('muxout')
+                    @gpio_tdd_ext_sync.setter
+                    def gpio_tdd_ext_sync(self, v):
+                        self._set_out('gpio_tdd_ext_sync', v)
+                    @property
+                    def gpio_phaser_enable(self):
+                        return self._get_in('phaser_enable')
+                    @gpio_phaser_enable.setter
+                    def gpio_phaser_enable(self, v):
+                        self._set_out('phaser_enable', v)
+                self.sdr_pins = _GpioProxy(_obad_dev)
+            else:
+                # IP/RNDIS mode: each class opens its own network connection
+                self.sdr = adi.ad9361(uri=self.sdr_uri)
+                self.tdd = adi.tddn(self.sdr_uri)
+                self.sdr_pins = adi.one_bit_adc_dac(self.sdr_uri)
+
+            # Phaser always connects to the RPi over its own URI (WiFi)
             self.phaser = adi.CN0566(uri=self.phaser_uri, sdr=self.sdr)
-            self.tdd = adi.tddn(self.sdr_uri)
-            self.sdr_pins = adi.one_bit_adc_dac(self.sdr_uri)
             
             # Configure Phaser
             self.phaser.configure(device_mode="rx")
@@ -424,6 +588,10 @@ class RadarBackend:
         
         # Store reshaped data for diagnostics
         self._last_rx_bursts = rx_bursts
+        
+        # Suppress DC leakage (TX-RX coupling) before range processing
+        if self.dc_suppression:
+            rx_bursts = self._suppress_dc_leakage(rx_bursts)
         
         # Apply MTI filter if enabled
         if self.mti_enabled:
@@ -831,6 +999,15 @@ class RadarBackend:
         
         return rd_map.astype(np.float32)
 
+    def _suppress_dc_leakage(self, rx_bursts: np.ndarray) -> np.ndarray:
+        """
+        Remove per-range-bin mean across chirps (kills TX-RX coupling at signal_freq).
+        Preserves target returns which have chirp-to-chirp variation from Doppler.
+        """
+        data_gpu = to_gpu(rx_bursts)
+        mean_chirp = xp.mean(data_gpu, axis=0, keepdims=True)
+        return to_cpu(data_gpu - mean_chirp)
+
     def _apply_mti(self, rx_bursts: np.ndarray) -> np.ndarray:
         """
         Apply phase-corrected 2-pulse canceller MTI filter.
@@ -896,8 +1073,13 @@ class RadarBackend:
         return (self.n_doppler, self.n_range)
 
     def get_dimensions_full(self) -> Tuple[int, int]:
-        """Return (n_doppler, n_range_full) dimensions for full-resolution frames."""
-        return (self.n_doppler, self.n_range_full)
+        """Return (n_doppler, n_range_positive) dimensions for full-resolution frames.
+        
+        Full-resolution frames are sliced to positive range only (0m at left edge),
+        so the range dimension is n_range_full - range_start_idx.
+        """
+        n_range_positive = self.n_range_full - self.range_start_idx
+        return (self.n_doppler, n_range_positive)
 
     def get_frame_full_resolution(self) -> np.ndarray:
         """
@@ -957,6 +1139,10 @@ class RadarBackend:
         # Store reshaped data for diagnostics
         self._last_rx_bursts = rx_bursts
         
+        # Suppress DC leakage (TX-RX coupling) before range processing
+        if self.dc_suppression:
+            rx_bursts = self._suppress_dc_leakage(rx_bursts)
+        
         # Apply MTI filter if enabled
         if self.mti_enabled:
             rx_bursts = self._apply_mti(rx_bursts)
@@ -1000,44 +1186,33 @@ class RadarBackend:
         return self._get_animated_frame_full()
 
     def _get_animated_frame_full(self) -> np.ndarray:
-        """Generate an animated full-resolution frame with moving targets."""
-        # Use log10 scale to match hardware output
-        noise_floor = 1.5
-        rd_map = np.full((self.n_doppler, self.n_range_full), noise_floor, dtype=np.float32)
+        """Generate an animated full-resolution frame with moving targets.
         
-        # Add smooth noise variation
-        noise = self._rng.standard_normal((self.n_doppler, self.n_range_full)).astype(np.float32) * 0.3
+        Uses positive-range-only dimensions to match hardware output
+        (0m at left edge, same as _process_to_rd_map_full).
+        """
+        n_range_positive = self.n_range_full - self.range_start_idx
+        noise_floor = 1.5
+        rd_map = np.full((self.n_doppler, n_range_positive), noise_floor, dtype=np.float32)
+        
+        noise = self._rng.standard_normal((self.n_doppler, n_range_positive)).astype(np.float32) * 0.3
         rd_map += noise
         
-        # Animate time
         t = self._frame_count * 0.05
+        # Positive range axis: 0m at bin 0, max at bin n_range_positive-1
+        max_range_positive = abs(self.range_axis[-1]) if self.range_axis[-1] > 0 else abs(self.range_axis[self.range_start_idx])
+        range_scale = self.max_range / max_range_positive if max_range_positive > 0 else 1.0
         
-        # Calculate max range for full resolution (approximately 54m with default settings)
-        c = 3e8
-        slope = self.chirp_bw / self.ramp_time_s
-        max_range_full = (self.n_range_full * self.sample_rate / self.n_range_full) * c / (2 * slope) / self.sample_rate
-        # Simplified: use the range_axis to find actual max range
-        max_range_full = abs(self.range_axis[-1] - self.range_axis[0])
-        
-        # Scale factor to map display range fraction to full range
-        range_scale = self.max_range / max_range_full if max_range_full > 0 else 1.0
-        
-        # Add targets as smooth 2D Gaussian peaks (scaled for full range)
         for target in self._synthetic_targets:
-            # Animate target position - scale range to full resolution
             range_frac_full = target['range_frac'] * range_scale
-            range_center = range_frac_full * self.n_range_full + np.sin(t * target['velocity'] * 8) * 30
+            range_center = range_frac_full * n_range_positive + np.sin(t * target['velocity'] * 8) * 30
             doppler_center = target['doppler_frac'] * self.n_doppler + np.sin(t * 0.3 + target['velocity']) * 15
             
-            # Create coordinate grids
-            r_idx = np.arange(self.n_range_full)
+            r_idx = np.arange(n_range_positive)
             d_idx = np.arange(self.n_doppler)
             R, D = np.meshgrid(r_idx, d_idx)
             
-            # Scale sigma for full resolution
-            range_sigma = target['range_sigma'] * (self.n_range_full / self.n_range)
-            
-            # Gaussian blob
+            range_sigma = target['range_sigma'] * (n_range_positive / self.n_range)
             range_dist = (R - range_center) / range_sigma
             doppler_dist = (D - doppler_center) / target['doppler_sigma']
             dist_sq = range_dist**2 + doppler_dist**2
@@ -1045,23 +1220,21 @@ class RadarBackend:
             gauss = np.exp(-0.5 * dist_sq)
             target_log10 = (target['amp_db'] + 70) / 10
             target_contribution = (target_log10 - noise_floor) * gauss
-            
             rd_map = np.maximum(rd_map, noise_floor + target_contribution)
         
-        # Clip to display range
         rd_map = np.clip(rd_map, self.min_scale, self.max_scale)
-        
         self._frame_count += 1
-        
         return rd_map.astype(np.float32)
 
     def _get_test_pattern_frame_full(self) -> np.ndarray:
         """Generate a full-resolution test pattern frame for visual validation.
         
-        Same patterns as _get_test_pattern_frame() but at full resolution
-        (n_doppler x n_range_full).
+        Same patterns as _get_test_pattern_frame() but at positive-range-only
+        resolution (n_doppler x n_range_positive) to match hardware output
+        (0m at left edge).
         """
-        n_range = self.n_range_full  # Use full resolution
+        n_range_positive = self.n_range_full - self.range_start_idx
+        n_range = n_range_positive
         
         # Start with a dark background
         rd_map = np.full((self.n_doppler, n_range), self.min_scale, dtype=np.float32)
@@ -1165,8 +1338,9 @@ class RadarBackend:
                         rd_map[d, r] = self.min_scale
         
         elif self._test_pattern == 'hb100_stationary':
-            # Simulate HB100 at ~3m, stationary (zero Doppler)
-            range_bin = int(3.0 / abs(self.range_axis[-1] - self.range_axis[0]) * n_range) if len(self.range_axis) > 1 else n_range // 3
+            # Simulate HB100 at ~3m, stationary (zero Doppler). Use positive-range axis.
+            positive_range_axis = self.range_axis[self.range_start_idx:]
+            range_bin = int(np.argmin(np.abs(positive_range_axis - 3.0))) if len(positive_range_axis) > 0 else n_range // 3
             doppler_bin = self.n_doppler // 2
             
             sigma_r = max(20, n_range // 50)
@@ -1186,7 +1360,8 @@ class RadarBackend:
         
         elif self._test_pattern == 'hb100_walking':
             # Simulate HB100 moving toward the radar (walking speed ~1.5 m/s)
-            range_bin = int(3.0 / abs(self.range_axis[-1] - self.range_axis[0]) * n_range) if len(self.range_axis) > 1 else n_range // 3
+            positive_range_axis = self.range_axis[self.range_start_idx:]
+            range_bin = int(np.argmin(np.abs(positive_range_axis - 3.0))) if len(positive_range_axis) > 0 else n_range // 3
             doppler_offset = int(self.n_doppler * 0.15)
             doppler_bin = self.n_doppler // 2 + doppler_offset
             
@@ -1271,6 +1446,11 @@ class RadarBackend:
         rd_map = out_cpu.astype(np.float32)
         t["astype_ms"] = (time.perf_counter() - t5) * 1000
         
+        # Only return positive range (0m to max unambiguous range).
+        # range_start_idx is the index of 0m in the fftshift'd range axis.
+        # This matches the coordinate system expected by the web UI (0m at left edge).
+        rd_map = rd_map[:, self.range_start_idx:]
+        
         if timings is not None:
             timings.update(t)
         return rd_map
@@ -1303,12 +1483,14 @@ class RadarBackend:
         """Return GPU acceleration status for logging from Rust."""
         return get_gpu_status()
 
-    def export_frame(self, directory: str, frame: np.ndarray = None) -> str:
+    def export_frame(self, directory: str, frame: np.ndarray = None, full_resolution: bool = False) -> str:
         """Export the current frame to a file for offline analysis.
         
         Args:
             directory: Directory to save files to
             frame: Optional frame to export. If None, captures a new frame.
+            full_resolution: If True and frame is None, capture full-resolution frame
+                (n_doppler x n_range_full) matching what the web UI displays.
             
         Returns:
             Path to the exported .npy file
@@ -1322,7 +1504,7 @@ class RadarBackend:
         
         # Get frame if not provided
         if frame is None:
-            frame = self.get_frame()
+            frame = self.get_frame_full_resolution() if full_resolution else self.get_frame()
         
         # Generate timestamp for unique filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")

@@ -301,3 +301,60 @@ journalctl -u radar-web -f
 ```
 
 Replace `HOST` with the device IP (e.g. the Aleph host). For GPU observability, on the device run `sudo tegrastats --interval 500` and look for `GR3D_FREQ` during frame processing.
+
+## Validating hardware display
+
+To confirm that hardware mode matches synthetic (range 0 m at left, target visible):
+
+1. **Deploy** (from repo root): `./deploy.sh -h 192.168.4.181 -u aleph-phaser`
+2. **SSH** to the device: `ssh -i ./ssh/aleph-phaser aleph-phaser@192.168.4.181`
+3. **Check connectivity**: `ping 192.168.2.1` (Pluto); `sudo systemctl status radar-web`; `journalctl -u radar-web -f` for logs.
+4. Open the web UI at `http://192.168.4.181:8080` in hardware mode. With an HB100 at ~1 m, you should see a bright spot near the left edge and no DC cross at center.
+5. **Export a frame**: Press `E` in the web UI. Frames are written to `/var/lib/radar-web/exports/` on the device.
+6. **Copy exports locally** (from repo root):
+   ```bash
+   mkdir -p exports
+   scp -r -i ./ssh/aleph-phaser aleph-phaser@192.168.4.181:/var/lib/radar-web/exports ./exports
+   ```
+7. **Run pipeline diagnostic** (generates plots if matplotlib is available):
+   ```bash
+   nix develop --command python libs/radar-core/python/validate_web_pipeline.py \
+     exports/frame_YYYYMMDD_HHMMSS.npy -o exports/pipeline_diag --target-range 1.0
+   ```
+8. **Run hardware validation** (note the `--validate` flag):
+   ```bash
+   nix develop --command python libs/radar-core/python/validate_hardware.py \
+     --validate exports/frame_YYYYMMDD_HHMMSS.npy
+   ```
+
+### Troubleshooting: HB100 not visible (only DC at 0 m)
+
+If exported frames show only DC leakage and no target at 1 m, TDD may be unsynchronized with the ADF4159 ramp (common in USB mode).
+
+1. **Smoke test — use IP mode**  
+   In `flake.nix`, set `services.radar-web.sdrUri = "ip:192.168.2.1";`, redeploy, then export again with HB100 at 1 m and run `validate_web_pipeline.py`. If the target appears, the cause was USB TDD sync.
+
+2. **Fix USB TDD sync**  
+   The backend now writes `gpio_tdd_ext_sync` in USB mode (`radar_backend.py`). If the one-bit-adc-dac output label differs on your device, inspect IIO channels on the device:
+   ```bash
+   python3 -c "
+   import iio
+   ctx = iio.Context('usb:')
+   for d in ctx.devices:
+       if 'one-bit-adc-dac' in (d.name or ''):
+           for ch in d.channels:
+               labels = {k: ch.attrs[k].value for k in ch.attrs}
+               print(f'  ch={ch.id} output={ch.output} attrs={labels}')
+   "
+   ```
+   Then update the `_set_out` label in the `gpio_tdd_ext_sync` setter if needed.
+
+3. **Fallback — run reference script on device**  
+   If IP mode still does not show the target, confirm the physical setup with the original lab script (stop radar-web first so the SDR is free):
+   ```bash
+   ssh -i ./ssh/aleph-phaser aleph-phaser@192.168.4.181
+   sudo systemctl stop radar-web
+   # On device, run with appropriate URIs (e.g. SDR and Phaser IPs)
+   # scripts/gpu-demos/gpu_range_doppler.py uses ip:ALEPH_IP for SDR and ip:PHASER_IP for Phaser
+   ```
+   If the reference script shows the HB100, the issue is in radar-web config; if not, check antenna/cabling and HB100 placement.

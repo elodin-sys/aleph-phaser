@@ -315,7 +315,10 @@ def get_radar_data():
         start_index = start_offset_samples + burst * N_frame
         stop_index = start_index + good_ramp_samples
         rx_bursts[burst] = sum_data[start_index:stop_index]
-    
+
+    # DC leakage suppression: subtract mean chirp (kills TX-RX coupling)
+    rx_bursts = rx_bursts - np.mean(rx_bursts, axis=0, keepdims=True)
+
     return rx_bursts
 
 # ============================================================================

@@ -82,6 +82,9 @@ in {
         Group = "users";
         # Writable cache for CuPy JIT kernel compilation
         CacheDirectory = "radar-web";
+        # Export path: ./exports -> /var/lib/radar-web/exports
+        StateDirectory = "radar-web";
+        WorkingDirectory = "/var/lib/radar-web";
       };
 
       # Use the unified Python env from python-env.nix, plus CUDA vars if GPU is on.
