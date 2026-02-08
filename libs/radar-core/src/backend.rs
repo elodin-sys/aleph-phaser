@@ -69,6 +69,7 @@ impl PythonBackend {
             kwargs.set_item("output_freq", config.output_freq)?;
             kwargs.set_item("rx_gain", config.rx_gain)?;
             kwargs.set_item("max_range", config.max_range)?;
+            kwargs.set_item("dc_suppression", config.dc_suppression)?;
             kwargs.set_item("test_pattern", config.test_pattern.name())?;
 
             // Create the backend
@@ -81,9 +82,9 @@ impl PythonBackend {
             let dims: (usize, usize) = backend.call_method0("get_dimensions")?.extract()?;
             let (n_doppler, n_range) = dims;
 
-            // Get full-resolution dimensions
+            // Get full-resolution dimensions (transposed: n_range_positive, n_doppler)
             let dims_full: (usize, usize) = backend.call_method0("get_dimensions_full")?.extract()?;
-            let (_, n_range_full) = dims_full;
+            let n_range_full = dims_full.0;  // first element is range after transpose
 
             // Get display range from Python config
             let py_config = backend.call_method0("get_config")?;
@@ -151,17 +152,24 @@ impl PythonBackend {
     }
 
     /// Get full-resolution frame dimensions.
+    ///
+    /// After transpose, the frame is (n_range, n_doppler) matching ADI convention:
+    /// rows = Range (vertical), columns = Doppler/Velocity (horizontal).
     pub fn dimensions_full(&self) -> FrameDimensions {
+        // Note: FrameDimensions fields are named n_doppler/n_range but after
+        // transpose they map to texture height/width respectively.
+        // n_doppler = texture height = n_range_full (Range on Y-axis)
+        // n_range = texture width = n_doppler (Doppler on X-axis)
         FrameDimensions {
-            n_doppler: self.n_doppler as u32,
-            n_range: self.n_range_full as u32,
+            n_doppler: self.n_range_full as u32,  // rows = range bins
+            n_range: self.n_doppler as u32,        // cols = doppler bins
         }
     }
 
     /// Capture a full-resolution frame from the data source.
     ///
-    /// Returns a 2D array of values, shape (n_doppler, n_range_full).
-    /// This is useful for web visualization where client-side zoom is desired.
+    /// Returns a 2D array of values, shape (n_range_positive, n_doppler) after transpose.
+    /// Rows = Range, Columns = Doppler/Velocity (matches ADI reference).
     pub fn capture_full(&mut self) -> Result<Array2<f32>, RadarError> {
         Python::with_gil(|py| {
             let frame = self

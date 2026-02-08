@@ -69,13 +69,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Clamp to valid texture range
     uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
 
-    // Transpose axes to match ADI convention:
-    //   Screen X (horizontal) = Doppler/Velocity → texture rows (V axis)
-    //   Screen Y (vertical)   = Range            → texture columns (U axis)
-    // The texture stores (n_doppler rows, n_range columns), so:
-    //   tex U (column select) = 1.0 - uv.y  → Range, flipped so 0m is at screen bottom
-    //   tex V (row select)    = uv.x         → Doppler, left=neg velocity, right=pos
-    let sample_uv = vec2<f32>(1.0 - uv.y, uv.x);
+    // Data is already transposed in Python to (n_range rows, n_doppler columns)
+    // matching ADI convention: Range on Y-axis, Doppler/Velocity on X-axis.
+    // Texture: width=n_doppler (horizontal=Velocity), height=n_range (vertical=Range)
+    // UV mapping: uv.x → Doppler (correct), uv.y → Range (needs Y-flip for 0m at bottom)
+    let sample_uv = vec2<f32>(uv.x, 1.0 - uv.y);
 
     // Sample radar intensity (R channel from R8 texture)
     let intensity = textureSample(radar_texture, radar_sampler, sample_uv).r;

@@ -31,7 +31,7 @@ let
     "--ramp-time-us" (toString cfg.rampTimeUs)
     "--max-range" (toString cfg.maxRange)
     "--rx-gain" (toString cfg.rxGain)
-  ];
+  ] ++ (if cfg.dcSuppression then [ "--dc-suppression" ] else []);
 in {
   options.services.radar-web = {
     enable = mkEnableOption "radar-web WebGPU visualization server";
@@ -77,6 +77,12 @@ in {
       type = types.int;
       default = rcfg.rxGain;
       description = "Receive gain in dB. Defaults to aleph-phaser.radar.rxGain.";
+    };
+
+    dcSuppression = mkOption {
+      type = types.bool;
+      default = rcfg.dcSuppression;
+      description = "Enable DC leakage suppression. Defaults to aleph-phaser.radar.dcSuppression.";
     };
 
     # Service-specific options (not shared)

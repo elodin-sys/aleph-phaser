@@ -65,5 +65,15 @@ with lib;
         30 = conservative, 60 = ADI Phaser lab default (higher sensitivity).
       '';
     };
+
+    dcSuppression = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Enable DC leakage suppression (per-chirp mean subtraction).
+        False matches the ADI Phaser lab reference. True removes stationary
+        clutter but also removes all zero-Doppler content.
+      '';
+    };
   };
 }

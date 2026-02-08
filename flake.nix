@@ -205,6 +205,7 @@
         rampTimeUs = 300;               # ADI default (300us, 1079 range bins)
         maxRange = 100.0;               # ADI default (full range)
         rxGain = 60;                    # ADI default (60 dB, higher sensitivity)
+        dcSuppression = false;          # ADI default (no DC suppression, shows all features)
       };
 
       # radar-web inherits all radar params from aleph-phaser.radar above
@@ -244,14 +245,14 @@
         tui-radar.override {
           pythonEnv = config.aleph-phaser.pythonEnv;
           cudaPackages = pkgs.cudaPackages or null;
-          defaultArgs = builtins.concatStringsSep " " [
+          defaultArgs = builtins.concatStringsSep " " ([
             "--num-chirps" (toString rcfg.numChirps)
             "--ramp-time-us" (toString rcfg.rampTimeUs)
             "--max-range" (toString rcfg.maxRange)
             "--rx-gain" (toString rcfg.rxGain)
             "--sdr-uri" rcfg.sdrUri
             "--phaser-uri" rcfg.phaserUri
-          ];
+          ] ++ (if rcfg.dcSuppression then [ "--dc-suppression" ] else []));
         })
         # Radar Web (also started by services.radar-web when enabled)
         radar-web

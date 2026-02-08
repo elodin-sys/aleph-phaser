@@ -75,6 +75,10 @@ struct Args {
     #[arg(long, default_value = "30")]
     rx_gain: i32,
 
+    /// Enable DC leakage suppression (per-chirp mean subtraction)
+    #[arg(long, default_value = "false")]
+    dc_suppression: bool,
+
     /// Test pattern for synthetic mode (animated, corner_dots, gradient_h, gradient_v, center_target, grid, diagonal, checkerboard)
     #[arg(long, short = 't', default_value = "animated")]
     pattern: String,
@@ -98,6 +102,7 @@ fn main() -> Result<()> {
         center_freq: 2_100_000_000,
         output_freq: 9_900_000_000,
         rx_gain: args.rx_gain,
+        dc_suppression: args.dc_suppression,
         test_pattern: args.pattern,
     };
 

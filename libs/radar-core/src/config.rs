@@ -59,6 +59,12 @@ pub struct RadarConfig {
     /// Target frame rate in FPS (default: 30).
     pub target_fps: u32,
 
+    // === Signal Processing ===
+    /// Enable DC leakage suppression (per-chirp mean subtraction).
+    /// False matches the ADI Phaser lab reference.
+    #[serde(default)]
+    pub dc_suppression: bool,
+
     // === Test Pattern (synthetic mode) ===
     /// Test pattern for synthetic mode.
     #[serde(default)]
@@ -80,6 +86,7 @@ impl Default for RadarConfig {
             rx_gain: 30,
             max_range: 10.0,
             target_fps: 30,
+            dc_suppression: false,
             test_pattern: TestPattern::default(),
         }
     }

@@ -89,6 +89,7 @@ class RadarBackend:
         rx_gain: int = 30,
         signal_freq: float = 100_000,
         max_range: float = 10.0,
+        dc_suppression: bool = False,
     ):
         """
         Initialize the radar backend.
@@ -156,8 +157,9 @@ class RadarBackend:
         self.mti_enabled = False
         self.previous_frame = None
 
-        # DC leakage suppression (per-chirp mean subtraction); default True for target detection
-        self.dc_suppression = True
+        # DC leakage suppression (per-chirp mean subtraction)
+        # False matches the ADI Phaser lab reference
+        self.dc_suppression = dc_suppression
         
         # Display scaling (matching Jon's imshow vmin/vmax, not clip range)
         # Jon clips to [0, 50] but displays with vmax=8
@@ -1093,13 +1095,13 @@ class RadarBackend:
         return (self.n_doppler, self.n_range)
 
     def get_dimensions_full(self) -> Tuple[int, int]:
-        """Return (n_doppler, n_range_positive) dimensions for full-resolution frames.
+        """Return (n_range_positive, n_doppler) dimensions for full-resolution frames.
         
-        Full-resolution frames are sliced to positive range only (0m at left edge),
-        so the range dimension is n_range_full - range_start_idx.
+        Full-resolution frames are transposed to match ADI convention:
+        rows = Range (Y-axis), columns = Doppler/Velocity (X-axis).
         """
         n_range_positive = self.n_range_full - self.range_start_idx
-        return (self.n_doppler, n_range_positive)
+        return (n_range_positive, self.n_doppler)
 
     def get_frame_full_resolution(self) -> np.ndarray:
         """
@@ -1471,8 +1473,12 @@ class RadarBackend:
         
         # Only return positive range (0m to max unambiguous range).
         # range_start_idx is the index of 0m in the fftshift'd range axis.
-        # This matches the coordinate system expected by the web UI (0m at left edge).
         rd_map = rd_map[:, self.range_start_idx:]
+        
+        # Transpose to match ADI reference convention: (n_range, n_doppler)
+        # ADI's Range_Doppler_Plot.py does: range_doppler_data = np.log10(rx_bursts_fft).T
+        # This puts Range as rows (Y-axis) and Doppler as columns (X-axis)
+        rd_map = rd_map.T
         
         if timings is not None:
             timings.update(t)
@@ -1558,7 +1564,7 @@ class RadarBackend:
             'rd_map_max': float(frame.max()),
             'rd_map_mean': float(frame.mean()),
             'rd_map_std': float(frame.std()),
-            'axes': 'rd_map is (n_doppler, n_range) -- NOT transposed; rows=Doppler, cols=Range',
+            'axes': 'rd_map is (n_range, n_doppler) after .T; rows=Range (Y), cols=Doppler/Velocity (X)',
             'rx_bursts_shape': list(self._last_rx_bursts.shape) if self._last_rx_bursts is not None else None,
             'sample_rate': self.sample_rate,
             'num_chirps': self.num_chirps,
@@ -1660,6 +1666,7 @@ def create_backend(
     output_freq: int = 9_900_000_000,
     rx_gain: int = 30,
     max_range: float = 10.0,
+    dc_suppression: bool = False,
     test_pattern: str = "animated",
 ) -> RadarBackend:
     """Factory function for creating a RadarBackend instance.
@@ -1683,6 +1690,7 @@ def create_backend(
         output_freq=output_freq,
         rx_gain=rx_gain,
         max_range=max_range,
+        dc_suppression=dc_suppression,
     )
     
     # Set test pattern if in synthetic mode

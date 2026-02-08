@@ -56,6 +56,10 @@ struct Args {
     /// Receive gain in dB (AD9361). Must be between -3 and 70.
     #[arg(long, default_value = "30")]
     rx_gain: i32,
+
+    /// Enable DC leakage suppression (per-chirp mean subtraction).
+    #[arg(long, default_value = "false")]
+    dc_suppression: bool,
 }
 
 #[tokio::main]
@@ -84,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
     radar_config.ramp_time_us = args.ramp_time_us;
     radar_config.max_range = args.max_range;
     radar_config.rx_gain = args.rx_gain;
+    radar_config.dc_suppression = args.dc_suppression;
 
     info!("Chirps per frame (Doppler bins): {}", radar_config.n_doppler);
     info!(

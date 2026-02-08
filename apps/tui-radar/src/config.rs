@@ -35,6 +35,8 @@ pub struct RadarConfig {
     pub output_freq: u64,
     /// Receive gain (dB) - default 30
     pub rx_gain: i32,
+    /// DC leakage suppression
+    pub dc_suppression: bool,
     /// Test pattern for synthetic mode
     pub test_pattern: String,
 }
@@ -55,6 +57,7 @@ impl Default for RadarConfig {
             center_freq: 2_100_000_000,
             output_freq: 9_900_000_000,
             rx_gain: 30,
+            dc_suppression: false,
             test_pattern: "animated".to_string(),
         }
     }
@@ -104,6 +107,7 @@ impl RadarConfig {
             rx_gain: self.rx_gain,
             max_range: self.max_range,
             target_fps: self.target_fps,
+            dc_suppression: self.dc_suppression,
             test_pattern,
         }
     }
@@ -124,6 +128,7 @@ impl RadarConfig {
             center_freq: core.center_freq,
             output_freq: core.output_freq,
             rx_gain: core.rx_gain,
+            dc_suppression: core.dc_suppression,
             test_pattern: core.test_pattern.name().to_string(),
         }
     }
