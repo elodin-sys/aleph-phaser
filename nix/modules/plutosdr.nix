@@ -48,55 +48,29 @@ in {
   };
 
   config = mkIf cfg.enable {
-    # Set CUDA environment variables for CuPy's NVRTC compiler to find CUDA headers
-    # Required for GPU-accelerated demos to work properly
-    environment.sessionVariables = mkIf cfg.enableGpuDemos {
-      CUDA_PATH = "${pkgs.cudaPackages.cudatoolkit}";
-      # CuPy needs explicit include path for NVRTC runtime compilation
-      CUPY_INCLUDE_PATH = "${pkgs.cudaPackages.cudatoolkit}/include";
-    };
-    
+    # GPU support: tell the shared python-env module to include CuPy
+    aleph-phaser.enableGpu = mkIf cfg.enableGpuDemos true;
+
     # Core packages for PlutoSDR and Phaser
+    # Note: Python environment is managed by nix/modules/python-env.nix (single env for everything)
     environment.systemPackages = with pkgs; [
       # Core IIO libraries
       libiio
       
-      # TCP proxy for exposing PlutoSDR over network
-      socat
+      # libiio also provides iiod for network IIO proxy (used by iio-proxy service)
       
       # Phaser data files (filters, calibration, etc.)
       # Installed to /opt/phaser via symlink below
       phaser-data
-      
-      # Python environment with necessary packages
-      (python3.withPackages (ps: with ps; [
-        # Core dependencies
-        numpy
-        matplotlib
-        scipy
-        
-        # ADI hardware control - properly packaged
-        pyadi-iio  # Includes pylibiio dependency
-        
-        # Demo support
-        psutil
-        pillow
-        
-        # Network communication (for remote Phaser)
-        paramiko
-      ] ++ (optionals cfg.enableGpuDemos [
-        # GPU-accelerated computing
-        cupy  # CuPy with CUDA 12.x support
-      ])))
+
+      # Our custom PlutoSDR test tool
+      test-plutosdr  # Available as 'test-plutosdr' command
     
-    # Our custom PlutoSDR test tool
-    test-plutosdr  # Available as 'test-plutosdr' command
-    
-    # Optional: GNU Radio stack
-  ] ++ (optionals cfg.enableGnuRadio [
-    gnuradio
-    # Note: gr-iio would need to be packaged separately
-  ]);
+      # Optional: GNU Radio stack
+    ] ++ (optionals cfg.enableGnuRadio [
+      gnuradio
+      # Note: gr-iio would need to be packaged separately
+    ]);
     
     # Create /opt/phaser symlink pointing to phaser-data files
     # This provides a stable path for scripts to reference:
@@ -126,18 +100,19 @@ in {
     # Open firewall port for iiod if network server is enabled
     networking.firewall.allowedTCPPorts = mkIf cfg.enableNetworkServer [ 30431 ];
     
-    # TCP proxy to forward PlutoSDR's IIO port to the network
-    # This allows Mac clients to connect to Aleph:30431 and reach PlutoSDR at 192.168.2.1:30431
+    # IIO daemon that proxies the PlutoSDR's IIO context to network clients.
+    # iiod natively understands the IIO protocol including buffer streaming,
+    # unlike the previous socat TCP relay which broke sdr.rx() operations.
+    # Mac clients connect to Aleph:30431 and get full IIO access to the Pluto.
     systemd.services.iio-proxy = mkIf cfg.enableNetworkServer {
-      description = "IIO TCP Proxy - Forward PlutoSDR access to network";
+      description = "IIO Daemon - Serve PlutoSDR IIO context to network clients";
       after = [ "network.target" "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
       
       serviceConfig = {
         Type = "simple";
-        # Use socat to proxy TCP connections
-        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:30431,fork,reuseaddr TCP:192.168.2.1:30431";
+        ExecStart = "${pkgs.libiio}/bin/iiod -u ip:192.168.2.1 -p 30431";
         Restart = "on-failure";
         RestartSec = "5s";
       };

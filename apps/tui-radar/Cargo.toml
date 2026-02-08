@@ -1,0 +1,38 @@
+[package]
+name = "tui-radar"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "GPU-accelerated Range-Doppler radar TUI for CN0566 Phaser"
+readme = "README.md"
+
+[dependencies]
+# Radar backend library
+radar-core = { path = "../../libs/radar-core" }
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Arrays and math (re-export from radar-core for compatibility)
+ndarray = { workspace = true }
+num-complex = "0.4"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+color-eyre = "0.6"
+thiserror = { workspace = true }
+
+# Serialization (for config)
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[[bin]]
+name = "tui-radar"
+path = "src/main.rs"

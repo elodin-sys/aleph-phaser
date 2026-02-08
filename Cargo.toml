@@ -1,0 +1,43 @@
+# Aleph-Phaser Cargo Workspace
+#
+# This workspace contains all Rust crates for the radar system:
+# - libs/radar-core: Shared radar backend library (PyO3 bridge, types, protocol)
+# - apps/tui-radar: Terminal UI for real-time Range-Doppler display
+#
+# Build from repository root:
+#   cargo build --release
+#   cargo run -p tui-radar -- --synthetic
+
+[workspace]
+resolver = "2"
+members = [
+    "libs/radar-core",
+    "apps/tui-radar",
+    "apps/radar-web",
+    "apps/radar-web/client",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Aleph-Phaser Team"]
+license = "MIT"
+
+[workspace.dependencies]
+# Python interop for radar backend
+pyo3 = { version = "0.22", features = ["auto-initialize"] }
+pyo3-build-config = "0.22"
+
+# Arrays and math
+ndarray = "0.16"
+
+# Error handling
+thiserror = "2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true

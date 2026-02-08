@@ -117,6 +117,58 @@ uv sync
 python3 CW_RADAR_Waterfall_Mac.py
 ```
 
+## Real-Time Radar Visualization
+
+The repository includes two real-time Range-Doppler visualization applications that share a common Rust library (`libs/radar-core/`) and Python backend (`radar_backend.py`). Both use CuPy GPU-accelerated 2D FFT processing.
+
+**TUI Radar** (`apps/tui-radar/`) renders Range-Doppler maps in the terminal using braille-character heatmaps via Ratatui. Designed for headless use over SSH. Run with `tui-radar --synthetic` for test patterns or just `tui-radar` for live hardware (the deployed binary picks up the shared radar config automatically).
+
+**Radar Web** (`apps/radar-web/`) is an Axum web server that streams frames over WebSocket to a WASM/WebGPU browser client. Connect to `http://<aleph-ip>:8080` from any browser on the LAN. The `radar-web` systemd service starts automatically after deployment.
+
+### Radar Configuration
+
+Both applications share a single set of radar parameters defined in `flake.nix` under `aleph-phaser.radar`. These control the FMCW chirp waveform and directly determine the tradeoff between range coverage and frame rate.
+
+The two key parameters are `rampTimeUs` (chirp duration) and `numChirps` (Doppler bins per frame). Together they determine how much data the PlutoSDR must capture and transfer per frame. Since the PlutoSDR uses USB 2.0, the raw IQ data transfer is the dominant bottleneck (93% of frame time), so reducing data volume is the most effective way to increase frame rate.
+
+| Parameter | What it controls | Effect of reducing |
+|-----------|-----------------|-------------------|
+| `rampTimeUs` | Duration of each FMCW chirp. Longer chirps produce more range samples (and more range coverage). | Fewer ADC samples per chirp, smaller transfer, less range |
+| `numChirps` | Number of chirps in a burst. More chirps give finer Doppler (velocity) resolution. | Fewer chirps in the burst, smaller transfer, coarser velocity |
+| `maxRange` | Display cutoff in meters. Does not affect capture volume, only what's shown. | No performance impact, just display |
+
+The current defaults are tuned for a close-range desktop demo (0-10 feet):
+
+```nix
+aleph-phaser.radar = {
+    numChirps = 128;     # 128 chirps (vs Jon's original 512)
+    rampTimeUs = 100;    # 100 us ramp (vs Jon's original 500 us)
+    maxRange = 3.0;      # ~10 feet display
+};
+```
+
+Here is how these compare to Jon Kraft's original full-resolution parameters and what each configuration costs in terms of SDR transfer time:
+
+| Config | rampTimeUs | numChirps | Range bins | SDR data | Est. frame time | Est. FPS |
+|--------|-----------|-----------|-----------|----------|----------------|---------|
+| Jon's original | 500 | 512 | 1800 | 16.8 MB | ~1400 ms | ~0.7 |
+| Balanced | 500 | 256 | 1800 | 8.4 MB | ~700 ms | ~1.3 |
+| **Close-range (default)** | **100** | **128** | **360** | **2.1 MB** | **~210 ms** | **~4-5** |
+
+The range resolution (0.3 meters) is unchanged across all configurations because it depends only on chirp bandwidth (500 MHz), which stays constant. The close-range config simply captures fewer samples per chirp, covering 0-11 meters instead of 0-54 meters. For a tabletop demo with a cookie sheet reflector at arm's length, this is more than enough range and the 4-5x frame rate improvement makes the display feel responsive.
+
+To switch back to full-resolution for longer-range work, change the shared config in `flake.nix` and redeploy:
+
+```nix
+aleph-phaser.radar = {
+    numChirps = 512;
+    rampTimeUs = 500;
+    maxRange = 10.0;
+};
+```
+
+Both `tui-radar` and `radar-web` will pick up the new values. You can also override on the command line: `tui-radar --num-chirps 512 --ramp-time-us 500 --max-range 10 --synthetic`.
+
 ## Project Structure
 
 The repository uses NixOS for deployment. The `flake.nix` defines the system configuration and custom package overlays. The `nix/modules/plutosdr.nix` module configures PlutoSDR support, the IIO network proxy, and GPU demo packages. Custom packages in `nix/pkgs/` include `pylibiio.nix` for Python IIO bindings, `pyadi-iio.nix` for ADI hardware control, `cupy.nix` for GPU-accelerated NumPy, and `phaser-data.nix` for deploying filter files and demo scripts.

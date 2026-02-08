@@ -1,0 +1,30 @@
+Hello! I'm the a software developer of Elodin and Aleph, which powers this project via the nix upstream aleph.url reference in flake.nix.
+
+At the most basic high level, "Elodin" is:
+
+1. Elodin Editor & Nox/Nox-Py - A simulator & viewer that can easily and locally do the 10's of thousands of sample rates needed for a real world sensor simulation
+2. Elodin DB - A telemetry database that can ingest this huge amount of data in real time or faster
+3. Elodin Aleph - A flight computer that uses these things for effective bench top testing
+
+Which enables more rapid software development for physical systems
+
+In this case, this repository is an Aleph project for developing the Analog Devices Phaser SDR platform connected to an Aleph for GPU accelerated beam forming and resolving.
+
+Note: Always develop inside a nix develop shell, you can start one in a terminal with:
+`nix develop`
+Or alternatively can pass it a one-off command:
+`nix develop --command "EXAMPLE COMMAND"`
+
+More information for specific aspects is available by reviewing the many Readme's in the codebase.  Feel free to ask clarifying questions. Also some helpful references:
+
+The following comprehensive summaries have been created in the `/context` folder:
+
+1. **`references/cn0566-circuit-note.md`** - Hardware architecture and specifications
+2. **`references/phaser_lab_info.md`** - Lab procedures and learning objectives
+3. **`references/aleph-carrier-board.md`** - Target platform specifications
+4. **`references/aleph-expansion-board.md`** - SPI bridge solution analysis
+5. **`references/raspberry-pi-5-product-brief.md`** - Baseline platform comparison
+6. **`references/ADAR1000-datasheet.md`** - Beamformer chip detailed analysis
+7. **`references/ADF4159-datasheet.md`** - Frequency synthesizer specifications
+8. **`references/pluto-sdr-integration.md`** - NixOS configuration guide
+9. **`references/beamforming-example.md`** - Reference implementation analysis

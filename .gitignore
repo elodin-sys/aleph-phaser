@@ -2,3 +2,6 @@ result
 .DS_Store
 context/
 __pycache__/
+target/
+captures/
+exports/

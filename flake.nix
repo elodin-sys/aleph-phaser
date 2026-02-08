@@ -7,19 +7,109 @@
   };
 
   inputs = {
-    aleph.url = "github:elodin-sys/elodin?ref=7dba6c5&dir=aleph";
+    aleph.url = "github:elodin-sys/elodin/b676979d0f6d98f5a2873d26e65d34ab1af20eed?dir=aleph";
     flake-utils.follows = "aleph/flake-utils";
     nixpkgs.follows = "aleph/nixpkgs";
+    
+    # Rust overlay for modern Rust toolchain
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    
     self.submodules = true;
   };
 
   outputs = {
     nixpkgs,
     aleph,
+    rust-overlay,
+    flake-utils,
     self,
     ...
-  }: rec {
-    system = "aarch64-linux";
+  }: let
+    # Target system for NixOS configuration
+    targetSystem = "aarch64-linux";
+    
+    # Systems supported for local development
+    devSystems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
+    
+    # Generate devShells for each system
+    devShellOutputs = flake-utils.lib.eachSystem devSystems (system: let
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ rust-overlay.overlays.default ];
+      };
+      
+      # Build our custom Python packages for this system
+      pylibiio = pkgs.callPackage ./nix/pkgs/pylibiio.nix {};
+      pyadi-iio = pkgs.callPackage ./nix/pkgs/pyadi-iio.nix {
+        inherit pylibiio;
+      };
+      
+      # Python with all radar + Mac demo dependencies
+      pythonEnv = pkgs.python312.withPackages (ps: [
+        ps.numpy
+        ps.paramiko
+        ps.matplotlib
+        ps.scipy
+        ps.pyqt5
+        ps.pyqtgraph
+        pylibiio
+        pyadi-iio
+      ]);
+      
+      # Rust toolchain with WASM target for web client
+      rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+        targets = [ "wasm32-unknown-unknown" ];
+      };
+    in {
+      devShells.default = pkgs.mkShell {
+        name = "tui-radar-dev";
+        
+        buildInputs = [
+          pythonEnv
+          rustToolchain
+          pkgs.pkg-config
+          pkgs.libiio  # Provides iio_info, iio_attr, etc.
+          
+          # WASM tooling for radar-web client
+          pkgs.wasm-pack
+          pkgs.wasm-bindgen-cli
+          pkgs.binaryen  # Provides wasm-opt
+        ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+          pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
+          pkgs.qt5.qtbase  # Provides cocoa platform plugin for PyQt5 on macOS
+        ];
+        
+        env = {
+          # Build-time: tell PyO3 which Python to use
+          PYO3_PYTHON = "${pythonEnv}/bin/python3";
+          # Runtime: tell embedded Python where to find stdlib and packages
+          PYTHONHOME = "${pythonEnv}";
+        } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
+          # PyQt5 needs the Qt platform plugins (cocoa) on macOS
+          QT_PLUGIN_PATH = "${pkgs.qt5.qtbase.bin}/${pkgs.qt5.qtbase.qtPluginPrefix}";
+        };
+        
+        shellHook = ''
+          echo "tui-radar development shell"
+          echo "Python: ${pythonEnv}/bin/python3"
+          echo "Rust: $(rustc --version)"
+          echo ""
+          echo "Build: cargo build --release"
+          echo "Run:   ./target/release/tui-radar --synthetic"
+          echo "       ./target/release/tui-radar --sdr-uri ip:X.X.X.X --phaser-uri ip:X.X.X.X"
+          echo ""
+          echo "Web (build WASM client):"
+          echo "  cd apps/radar-web/client && wasm-pack build --target web --dev"
+          echo "  cp -r pkg/* ../static/"
+          echo "  cargo run -p radar-web -- --synthetic"
+        '';
+      };
+    });
+  in devShellOutputs // rec {
+    system = targetSystem;
     
     # Define custom overlay for our packages
     overlays.default = final: prev: {
@@ -43,6 +133,21 @@
         };
       };
       python3Packages = final.python3.pkgs;
+      
+      # TUI Radar application (GPU-accelerated Range-Doppler display)
+      # Uses rust-overlay for modern Rust toolchain
+      # Builds from workspace root with radar-core library
+      tui-radar = final.callPackage ./nix/pkgs/tui-radar.nix {
+        workspaceSrc = ./.;
+        inherit (final) rust-bin makeRustPlatform;
+      };
+      
+      # Radar Web application (WebGPU visualization server)
+      # Includes WASM client built with cargo + wasm-bindgen
+      radar-web = final.callPackage ./nix/pkgs/radar-web.nix {
+        workspaceSrc = ./.;
+        inherit (final) rust-bin makeRustPlatform wasm-bindgen-cli binaryen;
+      };
     };
     
     nixosModules.default = {config, pkgs, ...}: {
@@ -62,13 +167,17 @@
         aleph-dev # a default set of packages like cuda, opencv, and git that make developing on aleph easier
         
         # Import our custom modules
+        ./nix/modules/radar-config.nix  # Shared radar parameters (single source of truth)
+        ./nix/modules/python-env.nix    # Unified Python environment (used by all services)
         ./nix/modules/plutosdr.nix
+        ./nix/modules/radar-web.nix
       ];
 
       # overlays required to get elodin and nvidia packages
       # NOTE: Order matters! aleph.overlays.jetpack must come BEFORE aleph.overlays.default
       # so that aleph's gitReposOverlay properly overrides nvidia-jetpack with custom device tree sources
       nixpkgs.overlays = [
+        rust-overlay.overlays.default  # Rust overlay for modern Rust toolchain
         aleph.overlays.jetpack  # Apply jetpack overlay first
         aleph.overlays.default  # Then apply aleph overlay (includes custom gitRepos for devicetree)
         overlays.default        # Add our custom overlay last
@@ -84,6 +193,24 @@
         users = [ "aleph-phaser" ];  # Add our user to plugdev/dialout groups
         enableGnuRadio = true; # long build time and heavy dependencies
         enableGpuDemos = true; # Enable GPU-accelerated radar demos
+      };
+
+      # Shared radar parameters -- single source of truth for both tui-radar and radar-web.
+      # Aligned with ADI Phaser lab reference (Range_Doppler_Plot.py) for validation.
+      aleph-phaser.radar = {
+        mode = "hardware";
+        sdrUri = "ip:192.168.2.1";     # IP mode required: gpio_tdd_ext_sync not exposed over USB
+        phaserUri = "ip:192.168.4.184";
+        numChirps = 256;                # ADI default (256 chirps, ~1.3 FPS)
+        rampTimeUs = 300;               # ADI default (300us, 1079 range bins)
+        maxRange = 100.0;               # ADI default (full range)
+        rxGain = 60;                    # ADI default (60 dB, higher sensitivity)
+        dcSuppression = false;          # ADI default (no DC suppression, shows all features)
+      };
+
+      # radar-web inherits all radar params from aleph-phaser.radar above
+      services.radar-web = {
+        enable = false;
       };
 
       # Additional system packages for Phaser development
@@ -105,14 +232,42 @@
         pciutils
         lshw
         
-        # Python development
-        python3
+        # Note: Python environment is managed by nix/modules/python-env.nix
         
         # Build tools (in case we need to compile anything)
         gcc
         gnumake
         cmake
         pkg-config
+        
+        # TUI Radar application (with PYTHONHOME + CUDA for CuPy JIT + shared radar config)
+        (let rcfg = config.aleph-phaser.radar; in
+        tui-radar.override {
+          pythonEnv = config.aleph-phaser.pythonEnv;
+          cudaPackages = pkgs.cudaPackages or null;
+          defaultArgs = builtins.concatStringsSep " " ([
+            "--num-chirps" (toString rcfg.numChirps)
+            "--ramp-time-us" (toString rcfg.rampTimeUs)
+            "--max-range" (toString rcfg.maxRange)
+            "--rx-gain" (toString rcfg.rxGain)
+            "--sdr-uri" rcfg.sdrUri
+            "--phaser-uri" rcfg.phaserUri
+          ] ++ (if rcfg.dcSuppression then [ "--dc-suppression" ] else []));
+        })
+        # Radar Web (with PYTHONHOME + CUDA for CuPy JIT + shared radar config)
+        (let rcfg2 = config.aleph-phaser.radar; in
+        radar-web.override {
+          pythonEnv = config.aleph-phaser.pythonEnv;
+          cudaPackages = pkgs.cudaPackages or null;
+          defaultArgs = builtins.concatStringsSep " " ([
+            "--num-chirps" (toString rcfg2.numChirps)
+            "--ramp-time-us" (toString rcfg2.rampTimeUs)
+            "--max-range" (toString rcfg2.maxRange)
+            "--rx-gain" (toString rcfg2.rxGain)
+            "--sdr-uri" rcfg2.sdrUri
+            "--phaser-uri" rcfg2.phaserUri
+          ] ++ (if rcfg2.dcSuppression then [ "--dc-suppression" ] else []));
+        })
       ];
 
       users.users.aleph-phaser = {
