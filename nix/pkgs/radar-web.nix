@@ -21,6 +21,9 @@
 , workspaceSrc
 , wasm-bindgen-cli
 , binaryen
+, pythonEnv ? null
+, cudaPackages ? null
+, defaultArgs ? ""
 }:
 
 let
@@ -101,14 +104,22 @@ rustPlatform.buildRustPackage {
     cp ${workspaceSrc}/libs/radar-core/python/*.py $out/lib/python/
   '';
 
-  # Set up runtime environment.
-  # Do not set PYTHONHOME here: when run as a systemd service (nix/modules/radar-web.nix),
-  # the service sets PYTHONHOME to a full Python env with numpy, pyadi-iio, paramiko.
-  postFixup = ''
+  # Set up runtime environment and default args (same pattern as tui-radar.nix).
+  postFixup = let
+    envArgs = lib.concatStringsSep " "
+      (lib.optional (pythonEnv != null) "--set PYTHONHOME \"${pythonEnv}\""
+       ++ lib.optionals (cudaPackages != null) [
+         "--set CUDA_PATH \"${cudaPackages.cudatoolkit}\""
+         "--set CUPY_INCLUDE_PATH \"${cudaPackages.cudatoolkit}/include\""
+       ]);
+    flagsArg = lib.optionalString (defaultArgs != "") ''--add-flags "${defaultArgs}"'';
+  in ''
     wrapProgram $out/bin/radar-web \
       --set RADAR_BACKEND_PATH "$out/lib/python" \
       --prefix PYTHONPATH : "$out/lib/python" \
-      --set RADAR_WEB_STATIC_DIR "$out/share/radar-web/static"
+      --set RADAR_WEB_STATIC_DIR "$out/share/radar-web/static" \
+      ${envArgs} \
+      ${flagsArg}
   '';
 
   meta = with lib; {

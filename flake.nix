@@ -254,8 +254,20 @@
             "--phaser-uri" rcfg.phaserUri
           ] ++ (if rcfg.dcSuppression then [ "--dc-suppression" ] else []));
         })
-        # Radar Web (also started by services.radar-web when enabled)
-        radar-web
+        # Radar Web (with PYTHONHOME + CUDA for CuPy JIT + shared radar config)
+        (let rcfg2 = config.aleph-phaser.radar; in
+        radar-web.override {
+          pythonEnv = config.aleph-phaser.pythonEnv;
+          cudaPackages = pkgs.cudaPackages or null;
+          defaultArgs = builtins.concatStringsSep " " ([
+            "--num-chirps" (toString rcfg2.numChirps)
+            "--ramp-time-us" (toString rcfg2.rampTimeUs)
+            "--max-range" (toString rcfg2.maxRange)
+            "--rx-gain" (toString rcfg2.rxGain)
+            "--sdr-uri" rcfg2.sdrUri
+            "--phaser-uri" rcfg2.phaserUri
+          ] ++ (if rcfg2.dcSuppression then [ "--dc-suppression" ] else []));
+        })
       ];
 
       users.users.aleph-phaser = {

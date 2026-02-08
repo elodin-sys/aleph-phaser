@@ -78,9 +78,9 @@ impl PythonBackend {
                 .call((), Some(&kwargs))
                 .map_err(|e| RadarError::InitializationError(e.to_string()))?;
 
-            // Get dimensions from Python
+            // Get dimensions from Python (transposed: n_range, n_doppler)
             let dims: (usize, usize) = backend.call_method0("get_dimensions")?.extract()?;
-            let (n_doppler, n_range) = dims;
+            let (n_range, n_doppler) = dims;
 
             // Get full-resolution dimensions (transposed: n_range_positive, n_doppler)
             let dims_full: (usize, usize) = backend.call_method0("get_dimensions_full")?.extract()?;
@@ -144,10 +144,14 @@ impl PythonBackend {
     }
 
     /// Get frame dimensions (sliced to display range).
+    ///
+    /// After transpose, the frame is (n_range, n_doppler):
+    /// n_doppler field = texture height = n_range (Range on Y-axis)
+    /// n_range field = texture width = n_doppler (Doppler on X-axis)
     pub fn dimensions(&self) -> FrameDimensions {
         FrameDimensions {
-            n_doppler: self.n_doppler as u32,
-            n_range: self.n_range as u32,
+            n_doppler: self.n_range as u32,   // rows = range bins
+            n_range: self.n_doppler as u32,    // cols = doppler bins
         }
     }
 

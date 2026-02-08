@@ -1093,11 +1093,16 @@ class RadarBackend:
         if GPU_AVAILABLE:
             cp.cuda.Stream.null.synchronize()
         
-        return to_cpu(range_doppler_data).astype(np.float32)
+        rd_map = to_cpu(range_doppler_data).astype(np.float32)
+        
+        # Transpose and flip Doppler axis to match ADI convention
+        rd_map = np.ascontiguousarray(rd_map.T[:, ::-1])
+        
+        return rd_map
 
     def get_dimensions(self) -> Tuple[int, int]:
-        """Return (n_doppler, n_range) dimensions of output frames."""
-        return (self.n_doppler, self.n_range)
+        """Return (n_range, n_doppler) dimensions of output frames (after transpose)."""
+        return (self.n_range, self.n_doppler)
 
     def get_dimensions_full(self) -> Tuple[int, int]:
         """Return (n_range_positive, n_doppler) dimensions for full-resolution frames.
@@ -1484,6 +1489,10 @@ class RadarBackend:
         # ADI's Range_Doppler_Plot.py does: range_doppler_data = np.log10(rx_bursts_fft).T
         # This puts Range as rows (Y-axis) and Doppler as columns (X-axis)
         rd_map = rd_map.T
+        
+        # Flip Doppler axis to match ADI sign convention
+        # (negative velocity / approaching on left, positive / receding on right)
+        rd_map = np.ascontiguousarray(rd_map[:, ::-1])
         
         if timings is not None:
             timings.update(t)
