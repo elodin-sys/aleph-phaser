@@ -57,8 +57,7 @@ in {
       # Core IIO libraries
       libiio
       
-      # TCP proxy for exposing PlutoSDR over network
-      socat
+      # libiio also provides iiod for network IIO proxy (used by iio-proxy service)
       
       # Phaser data files (filters, calibration, etc.)
       # Installed to /opt/phaser via symlink below
@@ -101,18 +100,19 @@ in {
     # Open firewall port for iiod if network server is enabled
     networking.firewall.allowedTCPPorts = mkIf cfg.enableNetworkServer [ 30431 ];
     
-    # TCP proxy to forward PlutoSDR's IIO port to the network
-    # This allows Mac clients to connect to Aleph:30431 and reach PlutoSDR at 192.168.2.1:30431
+    # IIO daemon that proxies the PlutoSDR's IIO context to network clients.
+    # iiod natively understands the IIO protocol including buffer streaming,
+    # unlike the previous socat TCP relay which broke sdr.rx() operations.
+    # Mac clients connect to Aleph:30431 and get full IIO access to the Pluto.
     systemd.services.iio-proxy = mkIf cfg.enableNetworkServer {
-      description = "IIO TCP Proxy - Forward PlutoSDR access to network";
+      description = "IIO Daemon - Serve PlutoSDR IIO context to network clients";
       after = [ "network.target" "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
       
       serviceConfig = {
         Type = "simple";
-        # Use socat to proxy TCP connections
-        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:30431,fork,reuseaddr TCP:192.168.2.1:30431";
+        ExecStart = "${pkgs.libiio}/bin/iiod -u ip:192.168.2.1 -p 30431";
         Restart = "on-failure";
         RestartSec = "5s";
       };

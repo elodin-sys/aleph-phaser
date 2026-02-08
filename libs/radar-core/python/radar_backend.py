@@ -538,6 +538,17 @@ class RadarBackend:
         if not enabled:
             self.previous_frame = None
 
+    def set_dc_suppression(self, enabled: bool):
+        """Enable or disable DC leakage suppression.
+        
+        When enabled (default), subtracts the per-chirp mean across all chirps,
+        removing TX-RX coupling and all zero-Doppler content (stationary objects).
+        When disabled, the display matches the ADI Phaser lab reference which shows
+        all features including stationary clutter.
+        """
+        self.dc_suppression = enabled
+        print(f"RadarBackend: DC suppression {'enabled' if enabled else 'disabled'}", flush=True)
+
     def set_test_pattern(self, pattern: str):
         """Set the test pattern for synthetic mode.
         
@@ -1496,7 +1507,15 @@ class RadarBackend:
         return get_gpu_status()
 
     def export_frame(self, directory: str, frame: np.ndarray = None, full_resolution: bool = False) -> str:
-        """Export the current frame to a file for offline analysis.
+        """Export the current frame and raw IQ data for offline analysis.
+        
+        Saves:
+        - frame_{ts}.npy: processed Range-Doppler map (log10, clipped)
+        - frame_{ts}_rx_bursts.npy: raw IQ chirps before FFT (if available)
+        - frame_{ts}_meta.json: all radar params for reproducible comparison
+        
+        The metadata format is compatible with Range_Doppler_Plot_Mac.py exports
+        for direct numerical comparison between radar-web and the ADI reference.
         
         Args:
             directory: Directory to save files to
@@ -1507,8 +1526,6 @@ class RadarBackend:
         Returns:
             Path to the exported .npy file
         """
-        import os
-        import json
         from datetime import datetime
         
         # Ensure directory exists
@@ -1521,26 +1538,51 @@ class RadarBackend:
         # Generate timestamp for unique filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         
-        # Save frame as numpy array
+        # Save processed Range-Doppler map
         frame_path = os.path.join(directory, f"frame_{timestamp}.npy")
         np.save(frame_path, frame)
         
-        # Save metadata
+        # Save raw IQ chirps (pre-FFT) if available from last capture
+        if self._last_rx_bursts is not None:
+            rx_path = os.path.join(directory, f"frame_{timestamp}_rx_bursts.npy")
+            np.save(rx_path, self._last_rx_bursts)
+        
+        # Save comprehensive metadata matching Mac demo export format
         meta_path = os.path.join(directory, f"frame_{timestamp}_meta.json")
         metadata = {
             'timestamp': timestamp,
-            'shape': list(frame.shape),
-            'dtype': str(frame.dtype),
-            'min': float(frame.min()),
-            'max': float(frame.max()),
-            'mean': float(frame.mean()),
-            'std': float(frame.std()),
+            'source': 'radar_backend.py (radar-web/tui-radar)',
+            'rd_map_shape': list(frame.shape),
+            'rd_map_dtype': str(frame.dtype),
+            'rd_map_min': float(frame.min()),
+            'rd_map_max': float(frame.max()),
+            'rd_map_mean': float(frame.mean()),
+            'rd_map_std': float(frame.std()),
+            'axes': 'rd_map is (n_doppler, n_range) -- NOT transposed; rows=Doppler, cols=Range',
+            'rx_bursts_shape': list(self._last_rx_bursts.shape) if self._last_rx_bursts is not None else None,
+            'sample_rate': self.sample_rate,
+            'num_chirps': self.num_chirps,
+            'ramp_time_us': self.ramp_time_us,
+            'chirp_bw': self.chirp_bw,
+            'center_freq': self.center_freq,
+            'output_freq': self.output_freq,
+            'signal_freq': self.signal_freq,
+            'rx_gain': self.rx_gain,
+            'good_ramp_samples': self.good_ramp_samples,
+            'n_doppler': self.n_doppler,
+            'n_range': self.n_range,
+            'n_range_full': self.n_range_full,
+            'min_scale': self.min_scale,
+            'max_scale': self.max_scale,
+            'mti_enabled': self.mti_enabled,
+            'dc_suppression': self.dc_suppression,
+            'gpu_available': GPU_AVAILABLE,
             'config': self.get_config(),
         }
         with open(meta_path, 'w') as f:
             json.dump(metadata, f, indent=2)
         
-        print(f"RadarBackend: Exported frame to {frame_path}")
+        print(f"RadarBackend: Exported frame to {frame_path}", flush=True)
         return frame_path
 
     def shutdown(self):

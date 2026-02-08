@@ -192,6 +192,11 @@ impl App {
                 // Export frame (server-side)
                 self.client.send_command(r#"{"cmd":"export"}"#);
             }
+            "B" => {
+                // Toggle DC suppression (server-side)
+                // "B" for "baseline" -- shows raw signal including stationary clutter
+                self.client.send_command(r#"{"cmd":"toggle_dc"}"#);
+            }
             "C" => {
                 // Cycle colormap (client-side)
                 self.colormap = self.colormap.next();

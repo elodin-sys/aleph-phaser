@@ -54,7 +54,16 @@ with lib;
     maxRange = mkOption {
       type = types.float;
       default = 3.0;
-      description = "Maximum display range in meters. 3.0 = desktop demo (~10 feet), 10.0 = room-scale.";
+      description = "Maximum display range in meters. 3.0 = desktop demo (~10 feet), 100.0 = full range.";
+    };
+
+    rxGain = mkOption {
+      type = types.int;
+      default = 30;
+      description = ''
+        Receive gain in dB (AD9361). Must be between -3 and 70.
+        30 = conservative, 60 = ADI Phaser lab default (higher sensitivity).
+      '';
     };
   };
 }

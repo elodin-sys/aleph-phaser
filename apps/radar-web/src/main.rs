@@ -52,6 +52,10 @@ struct Args {
     /// Maximum display range in meters.
     #[arg(long, default_value = "10.0")]
     max_range: f64,
+
+    /// Receive gain in dB (AD9361). Must be between -3 and 70.
+    #[arg(long, default_value = "30")]
+    rx_gain: i32,
 }
 
 #[tokio::main]
@@ -79,6 +83,7 @@ async fn main() -> anyhow::Result<()> {
     radar_config.n_doppler = args.num_chirps;
     radar_config.ramp_time_us = args.ramp_time_us;
     radar_config.max_range = args.max_range;
+    radar_config.rx_gain = args.rx_gain;
 
     info!("Chirps per frame (Doppler bins): {}", radar_config.n_doppler);
     info!(

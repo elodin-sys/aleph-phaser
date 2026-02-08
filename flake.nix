@@ -47,11 +47,14 @@
         inherit pylibiio;
       };
       
-      # Python with all radar dependencies
+      # Python with all radar + Mac demo dependencies
       pythonEnv = pkgs.python312.withPackages (ps: [
         ps.numpy
         ps.paramiko
         ps.matplotlib
+        ps.scipy
+        ps.pyqt5
+        ps.pyqtgraph
         pylibiio
         pyadi-iio
       ]);
@@ -76,6 +79,7 @@
           pkgs.binaryen  # Provides wasm-opt
         ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
           pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
+          pkgs.qt5.qtbase  # Provides cocoa platform plugin for PyQt5 on macOS
         ];
         
         env = {
@@ -83,6 +87,9 @@
           PYO3_PYTHON = "${pythonEnv}/bin/python3";
           # Runtime: tell embedded Python where to find stdlib and packages
           PYTHONHOME = "${pythonEnv}";
+        } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
+          # PyQt5 needs the Qt platform plugins (cocoa) on macOS
+          QT_PLUGIN_PATH = "${pkgs.qt5.qtbase.bin}/${pkgs.qt5.qtbase.qtPluginPrefix}";
         };
         
         shellHook = ''
@@ -189,14 +196,15 @@
       };
 
       # Shared radar parameters -- single source of truth for both tui-radar and radar-web.
-      # Close-range defaults optimized for desktop demo (0-10 feet).
+      # Aligned with ADI Phaser lab reference (Range_Doppler_Plot.py) for validation.
       aleph-phaser.radar = {
         mode = "hardware";
         sdrUri = "ip:192.168.2.1";     # IP mode required: gpio_tdd_ext_sync not exposed over USB
         phaserUri = "ip:192.168.4.184";
-        numChirps = 128;                # Close-range: fast capture (~2+ FPS)
-        rampTimeUs = 100;               # Close-range: 360 range bins, ~2 MB transfer vs 8 MB
-        maxRange = 3.0;                 # Desktop demo: ~10 feet
+        numChirps = 256;                # ADI default (256 chirps, ~1.3 FPS)
+        rampTimeUs = 300;               # ADI default (300us, 1079 range bins)
+        maxRange = 100.0;               # ADI default (full range)
+        rxGain = 60;                    # ADI default (60 dB, higher sensitivity)
       };
 
       # radar-web inherits all radar params from aleph-phaser.radar above
@@ -240,6 +248,7 @@
             "--num-chirps" (toString rcfg.numChirps)
             "--ramp-time-us" (toString rcfg.rampTimeUs)
             "--max-range" (toString rcfg.maxRange)
+            "--rx-gain" (toString rcfg.rxGain)
             "--sdr-uri" rcfg.sdrUri
             "--phaser-uri" rcfg.phaserUri
           ];

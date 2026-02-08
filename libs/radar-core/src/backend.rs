@@ -218,6 +218,27 @@ impl PythonBackend {
         })
     }
 
+    /// Set DC leakage suppression state.
+    pub fn set_dc_suppression(&mut self, enabled: bool) -> Result<(), RadarError> {
+        Python::with_gil(|py| {
+            self.py_backend
+                .bind(py)
+                .call_method1("set_dc_suppression", (enabled,))?;
+            Ok(())
+        })
+    }
+
+    /// Get DC leakage suppression state.
+    pub fn dc_suppression_enabled(&self) -> bool {
+        Python::with_gil(|py| {
+            self.py_backend
+                .bind(py)
+                .getattr("dc_suppression")
+                .and_then(|v| v.extract::<bool>())
+                .unwrap_or(true)
+        })
+    }
+
     /// Set test pattern (synthetic mode only).
     pub fn set_test_pattern(&mut self, pattern: &str) -> Result<(), RadarError> {
         Python::with_gil(|py| {

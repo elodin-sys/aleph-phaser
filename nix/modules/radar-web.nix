@@ -30,6 +30,7 @@ let
     "--num-chirps" (toString cfg.numChirps)
     "--ramp-time-us" (toString cfg.rampTimeUs)
     "--max-range" (toString cfg.maxRange)
+    "--rx-gain" (toString cfg.rxGain)
   ];
 in {
   options.services.radar-web = {
@@ -72,6 +73,12 @@ in {
       description = "Maximum display range in meters. Defaults to aleph-phaser.radar.maxRange.";
     };
 
+    rxGain = mkOption {
+      type = types.int;
+      default = rcfg.rxGain;
+      description = "Receive gain in dB. Defaults to aleph-phaser.radar.rxGain.";
+    };
+
     # Service-specific options (not shared)
     port = mkOption {
       type = types.port;
@@ -106,6 +113,19 @@ in {
         # Export path: ./exports -> /var/lib/radar-web/exports
         StateDirectory = "radar-web";
         WorkingDirectory = "/var/lib/radar-web";
+        # After radar-web stops, its shutdown handler reboots the PlutoSDR to
+        # reset the FPGA DMA engine. This kills the iiod proxy's upstream
+        # connection. Wait for the Pluto to come back, then restart iiod so
+        # Mac demos and other IIO clients work immediately.
+        ExecStopPost = "${pkgs.writeShellScript "radar-web-post-stop" ''
+          echo "Waiting for PlutoSDR to reboot..."
+          for i in $(seq 1 30); do
+            ${pkgs.iputils}/bin/ping -c 1 -W 1 192.168.2.1 >/dev/null 2>&1 && break
+            sleep 1
+          done
+          echo "Restarting iio-proxy..."
+          ${pkgs.systemd}/bin/systemctl restart iio-proxy
+        ''}";
       };
 
       # Use the unified Python env from python-env.nix, plus CUDA vars if GPU is on.

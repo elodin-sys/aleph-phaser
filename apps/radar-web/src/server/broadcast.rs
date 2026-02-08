@@ -29,6 +29,8 @@ pub enum RadarCommand {
     ToggleMti,
     /// Set MTI filter to a specific state.
     SetMti { enabled: bool },
+    /// Toggle DC leakage suppression on/off.
+    ToggleDc,
     /// Export current frame to disk.
     Export,
     /// Request current state.
@@ -368,6 +370,26 @@ fn handle_command_sync(
                 }
                 Err(e) => {
                     warn!("Failed to set MTI: {}", e);
+                }
+            }
+        }
+
+        RadarCommand::ToggleDc => {
+            match radar.toggle_dc_suppression() {
+                Ok(new_state) => {
+                    info!("DC suppression toggled to: {}", new_state);
+                    broadcast_state(radar, state_broadcast, *paused);
+                    state_broadcast.send_response(&CommandResponse::Toast {
+                        message: format!("DC Suppression: {}", if new_state { "ON" } else { "OFF" }),
+                        level: "info".to_string(),
+                    });
+                }
+                Err(e) => {
+                    warn!("Failed to toggle DC suppression: {}", e);
+                    state_broadcast.send_response(&CommandResponse::Toast {
+                        message: format!("DC toggle failed: {}", e),
+                        level: "error".to_string(),
+                    });
                 }
             }
         }

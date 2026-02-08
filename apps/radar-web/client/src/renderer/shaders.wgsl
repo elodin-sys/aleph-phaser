@@ -69,8 +69,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Clamp to valid texture range
     uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
 
+    // Transpose axes to match ADI convention:
+    //   Screen X (horizontal) = Doppler/Velocity → texture rows (V axis)
+    //   Screen Y (vertical)   = Range            → texture columns (U axis)
+    // The texture stores (n_doppler rows, n_range columns), so:
+    //   tex U (column select) = 1.0 - uv.y  → Range, flipped so 0m is at screen bottom
+    //   tex V (row select)    = uv.x         → Doppler, left=neg velocity, right=pos
+    let sample_uv = vec2<f32>(1.0 - uv.y, uv.x);
+
     // Sample radar intensity (R channel from R8 texture)
-    let intensity = textureSample(radar_texture, radar_sampler, uv).r;
+    let intensity = textureSample(radar_texture, radar_sampler, sample_uv).r;
 
     // Apply gain and gamma correction
     let adjusted = pow(intensity * uniforms.gain, uniforms.gamma);

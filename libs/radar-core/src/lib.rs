@@ -153,6 +153,18 @@ impl RadarSource {
         self.backend.mti_enabled()
     }
 
+    /// Toggle DC leakage suppression. Returns new state.
+    pub fn toggle_dc_suppression(&mut self) -> Result<bool, RadarError> {
+        let new_state = !self.backend.dc_suppression_enabled();
+        self.backend.set_dc_suppression(new_state)?;
+        Ok(new_state)
+    }
+
+    /// Get DC suppression state.
+    pub fn dc_suppression_enabled(&self) -> bool {
+        self.backend.dc_suppression_enabled()
+    }
+
     /// Set test pattern (synthetic mode only).
     pub fn set_test_pattern(&mut self, pattern: TestPattern) -> Result<(), RadarError> {
         self.backend.set_test_pattern(pattern.name())
