@@ -153,8 +153,8 @@ class RadarBackend:
         
         print(f"Range axis: full={self.n_range_full} bins, display={self.n_range} bins (idx {self.range_start_idx}-{self.range_end_idx})")
         
-        # MTI filter state
-        self.mti_enabled = False
+        # MTI filter state (on by default, matching ADI reference)
+        self.mti_enabled = True
         self.previous_frame = None
 
         # DC leakage suppression (per-chirp mean subtraction)
@@ -163,7 +163,12 @@ class RadarBackend:
         
         # Display scaling (matching Jon's imshow vmin/vmax, not clip range)
         # Jon clips to [0, 50] but displays with vmax=8
-        # Our data typically ranges from ~0.3 to ~7.6 in log10 scale
+        # Display scaling: log10 values clipped to [0, 8].
+        # Real radar data ranges from ~0 to ~8 in log10 scale.
+        # The ADI reference uses max_scale=100 (effectively no clip) because
+        # matplotlib auto-scales. Our u8 quantization maps [0, max_scale] to
+        # [0, 255], so max_scale=8 preserves full dynamic range in 8 bits.
+        # The WebGPU shader has a gain control for display adjustment.
         self.min_scale = 0
         self.max_scale = 8
         

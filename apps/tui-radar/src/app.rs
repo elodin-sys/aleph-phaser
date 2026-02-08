@@ -94,7 +94,7 @@ impl App {
             auto_scale: true,  // Enable auto-scale by default
             auto_min: min_db,
             auto_max: max_db,
-            mti_enabled: false,
+            mti_enabled: true,  // Backend defaults to MTI on (matching ADI reference)
             paused: false,
             frame_count: 0,
             fps: 0.0,
@@ -282,10 +282,10 @@ impl App {
     /// Reset to default state
     pub fn reset(&mut self) {
         self.gain_db = 0.0;
-        self.mti_enabled = false;
+        self.mti_enabled = true;
         self.auto_scale = true;
         self.debug_overlay = false;
-        let _ = self.data_source.set_mti(false);
+        let _ = self.data_source.set_mti(true);
         self.colormap = Colormap::Inferno;
         // Reset test pattern to animated
         if self.is_synthetic {

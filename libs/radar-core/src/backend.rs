@@ -102,7 +102,7 @@ impl PythonBackend {
                 n_range_full,
                 min_scale,
                 max_scale,
-                mti_enabled: false,
+                mti_enabled: true,
             })
         })
     }

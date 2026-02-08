@@ -210,7 +210,7 @@
 
       # radar-web inherits all radar params from aleph-phaser.radar above
       services.radar-web = {
-        enable = true;
+        enable = false;
       };
 
       # Additional system packages for Phaser development
