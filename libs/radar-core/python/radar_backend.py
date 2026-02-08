@@ -8,7 +8,11 @@ uses GPU acceleration via CuPy when available.
 The interface is designed for PyO3 integration with the Rust TUI application.
 """
 
+import atexit
+import json
 import numpy as np
+import os
+import signal
 import sys
 import time
 from typing import Dict, Optional, Tuple
@@ -460,6 +464,16 @@ class RadarBackend:
             # already eliminated so a warmup is unnecessary.
             
             self._hardware_initialized = True
+            # Register cleanup handlers so TDD is disabled on exit.
+            # atexit runs during normal interpreter shutdown.
+            atexit.register(self.shutdown)
+            # SIGTERM handler for systemctl stop / kill -TERM.
+            # Python's default SIGTERM raises SystemExit, but in a PyO3/Rust
+            # host the signal may kill the process before atexit runs.
+            def _sigterm_handler(signum, frame):
+                self.shutdown()
+                sys.exit(0)
+            signal.signal(signal.SIGTERM, _sigterm_handler)
             print("RadarBackend: Hardware initialized successfully")
             
         except ImportError as e:
@@ -1530,13 +1544,63 @@ class RadarBackend:
         return frame_path
 
     def shutdown(self):
-        """Clean up resources."""
-        if self._hardware_initialized and self.sdr:
-            try:
+        """Clean up resources (idempotent -- safe to call multiple times).
+        
+        Critically, this disables the TDD engine on the PlutoSDR.
+        If left enabled in sync_external mode, the TDD engine gates the RX
+        data path and any subsequent sdr.rx() from other clients (e.g. Mac
+        demos) will timeout with ETIMEDOUT because no GPIO triggers are firing.
+        """
+        if not self._hardware_initialized:
+            return
+        # Mark as cleaned up first to prevent double-cleanup from
+        # both the Rust Drop impl and the atexit handler.
+        self._hardware_initialized = False
+        
+        # Disable TDD engine first -- this is the most important cleanup step.
+        # The TDD state persists on the PlutoSDR firmware even after the host
+        # process exits, so we must explicitly disable it.
+        try:
+            if self.tdd is not None:
+                self.tdd.enable = False
+                print("RadarBackend: TDD engine disabled", flush=True)
+        except Exception as e:
+            print(f"RadarBackend: TDD cleanup error: {e}", flush=True)
+        
+        # Disable GPIO pins that control TDD sync
+        try:
+            if self.sdr_pins is not None:
+                self.sdr_pins.gpio_tdd_ext_sync = False
+                print("RadarBackend: GPIO TDD sync disabled", flush=True)
+        except Exception as e:
+            print(f"RadarBackend: GPIO cleanup error: {e}", flush=True)
+        
+        # Destroy TX buffer
+        try:
+            if self.sdr is not None:
                 self.sdr.tx_destroy_buffer()
-                print("RadarBackend: Hardware shutdown complete")
-            except Exception as e:
-                print(f"RadarBackend: Shutdown error: {e}")
+                print("RadarBackend: TX buffer destroyed", flush=True)
+        except Exception as e:
+            print(f"RadarBackend: TX cleanup error: {e}", flush=True)
+        
+        # Reboot the PlutoSDR to fully reset the FPGA DMA engine.
+        # The TDD burst mode leaves the Zynq FPGA's DMA controller in a
+        # triggered-only state that persists even after disabling TDD.
+        # Only a full reboot restores the DMA to free-running mode needed
+        # by CW demos and other non-TDD applications.
+        try:
+            import paramiko
+            pluto_ip = self.sdr_uri.replace("ip:", "").split(":")[0]
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(pluto_ip, username='root', password='analog', timeout=3)
+            ssh.exec_command('reboot')
+            ssh.close()
+            print(f"RadarBackend: PlutoSDR reboot initiated ({pluto_ip})", flush=True)
+        except Exception as e:
+            print(f"RadarBackend: PlutoSDR reboot failed (manual power cycle may be needed): {e}", flush=True)
+        
+        print("RadarBackend: Hardware shutdown complete", flush=True)
 
 
 # ============================================================================

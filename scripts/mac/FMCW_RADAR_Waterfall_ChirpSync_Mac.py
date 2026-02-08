@@ -36,7 +36,7 @@ print(f"pyadi-iio version: {adi.__version__}")
 # ============================================================================
 
 # Aleph IP - socat proxies PlutoSDR's IIO port (30431) to the network
-aleph_ip = "192.168.4.186"
+aleph_ip = "192.168.4.181"
 sdr_ip = f"ip:{aleph_ip}"  # Port 30431 is default for IIO
 
 # Raspberry Pi (Phaser) IP
@@ -64,17 +64,38 @@ print(f"Connecting to Phaser via Pi at {rpi_ip}")
 print("NOTE: This demo requires PlutoSDR firmware v0.39 or later")
 print()
 
+def disable_tdd(sdr):
+    """Disable TDD engine on PlutoSDR if left enabled by radar-web.
+    
+    The radar-web/tui-radar apps use TDD burst mode with external sync.
+    If they are killed without clean shutdown, the TDD engine stays enabled
+    and gates the RX path, causing sdr.rx() to timeout (ETIMEDOUT).
+    """
+    try:
+        ctx = sdr._ctx
+        for dev in ctx.devices:
+            if hasattr(dev, 'name') and dev.name and 'tdd' in dev.name:
+                for attr in dev.attrs:
+                    if attr == 'enable':
+                        if dev.attrs['enable'].value.strip() == '1':
+                            dev.attrs['enable'].value = '0'
+                            print("  ✓ Disabled leftover TDD engine (was blocking RX)")
+                        return
+    except Exception:
+        pass  # Best effort -- not all SDR firmware versions have TDD
+
 # Connect to hardware
 try:
-    print("Connecting to PlutoSDR (via Aleph iiod)...")
+    print("Connecting to PlutoSDR (via Aleph iio-proxy)...")
     my_sdr = adi.ad9361(uri=sdr_ip)
     print("  ✓ PlutoSDR connected")
+    disable_tdd(my_sdr)
 except Exception as e:
     print(f"  ✗ Failed to connect to SDR: {e}")
     print()
     print("Make sure:")
     print(f"  1. Aleph is reachable at {aleph_ip}")
-    print("  2. iio-proxy service is running: ssh aleph-phaser@{aleph_ip} 'systemctl status iio-proxy'")
+    print(f"  2. iio-proxy is running: ssh aleph-phaser@{aleph_ip} 'systemctl status iio-proxy'")
     print("  3. PlutoSDR is connected to Aleph USB")
     sys.exit(1)
 
